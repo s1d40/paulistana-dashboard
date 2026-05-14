@@ -7,7 +7,7 @@ import {
   Save, 
   Hash, Layout, Smartphone, PenTool, Sparkles,
   Monitor, PlayCircle, Camera, CheckCircle2,
-  Globe, Share2, Send, ExternalLink
+  Globe, Share2, Send, ExternalLink, Download, Copy, Check
 } from 'lucide-react';
 import { fetchPostDetails, PostDetailsPayload, Account } from '@/services/supabase-service';
 import clsx from 'clsx';
@@ -30,6 +30,13 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [isPublishing, setIsPublishing] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const copyToClipboard = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
 
   // Form States
   const [caption, setCaption] = useState('');
@@ -79,6 +86,7 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
         // Initialize form states
         if (data.post) {
           setCaption(data.post.captions || data.post.roteiro_gerado || '');
+          setHashtags(data.post.hashtags || '');
           setYtTitle(data.post.titulo_post || '');
         }
       } catch (err) {
@@ -131,6 +139,7 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           captions: caption,
+          hashtags: hashtags,
           titulo_post: ytTitle,
         }),
       });
@@ -293,13 +302,25 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
                         <Video className="w-4 h-4 text-rose-500" /> Master Render Preview
                       </h4>
                       {details.videos.length > 0 ? (
-                        <div className="rounded-[2.5rem] overflow-hidden border-8 border-zinc-900 shadow-2xl bg-black aspect-[9/16] relative max-w-[280px] mx-auto group">
-                          <video controls className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700">
-                            <source src={details.videos[0].video_final_url} type="video/mp4" />
-                          </video>
-                          <div className="absolute top-4 right-4 px-3 py-1 bg-black/60 backdrop-blur-md rounded-full text-[8px] font-black text-white uppercase tracking-widest border border-white/10">
-                            Final Render
+                        <div className="space-y-4">
+                          <div className="rounded-[2.5rem] overflow-hidden border-8 border-zinc-900 shadow-2xl bg-black aspect-[9/16] relative max-w-[280px] mx-auto group">
+                            <video controls className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700">
+                              <source src={details.videos[0].video_final_url} type="video/mp4" />
+                            </video>
+                            <div className="absolute top-4 right-4 px-3 py-1 bg-black/60 backdrop-blur-md rounded-full text-[8px] font-black text-white uppercase tracking-widest border border-white/10">
+                              Final Render
+                            </div>
                           </div>
+                          <a 
+                            href={details.videos[0].video_final_url} 
+                            download={`video_${postId}.mp4`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center justify-center gap-2 w-full max-w-[280px] mx-auto py-4 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white transition-all shadow-xl hover:scale-105 active:scale-95"
+                          >
+                            <Download className="w-4 h-4 text-orange-500" />
+                            Baixar Master MP4
+                          </a>
                         </div>
                       ) : (
                         <div className="aspect-[9/16] max-w-[280px] mx-auto bg-zinc-900/50 rounded-[2.5rem] flex flex-col items-center justify-center text-zinc-700 border-2 border-dashed border-zinc-800 group hover:border-orange-500/30 transition-all duration-500">
@@ -307,6 +328,45 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
                           <p className="text-[10px] font-black uppercase tracking-widest">Aguardando Renderização</p>
                         </div>
                       )}
+                    </div>
+                  </div>
+
+                  {/* Publishing Kit (Captions & Hashtags) */}
+                  <div className="space-y-6 pt-10 border-t border-zinc-800/50">
+                    <h4 className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                      <Sparkles className="w-4 h-4 text-orange-500" /> Kit de Publicação Rápida
+                    </h4>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="p-6 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl space-y-4 relative group">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Legenda Final</span>
+                          <button 
+                            onClick={() => copyToClipboard(caption, 'caption')}
+                            className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400 hover:text-white"
+                          >
+                            {copiedField === 'caption' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        <p className="text-sm text-zinc-400 line-clamp-4 leading-relaxed italic">
+                          {caption || 'Nenhuma legenda gerada.'}
+                        </p>
+                      </div>
+
+                      <div className="p-6 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl space-y-4 relative group">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Hashtags Estratégicas</span>
+                          <button 
+                            onClick={() => copyToClipboard(hashtags, 'hashtags')}
+                            className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400 hover:text-white"
+                          >
+                            {copiedField === 'hashtags' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                          </button>
+                        </div>
+                        <p className="text-sm text-indigo-400/80 font-mono tracking-tight line-clamp-4">
+                          {hashtags || '#cocreator #inteligenciaartificial #conteudo'}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -368,9 +428,18 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
                   <div className="space-y-8">
                     <div className="space-y-3">
-                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-pink-500" /> Legenda do Post
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-pink-500" /> Legenda do Post
+                        </label>
+                        <button 
+                          onClick={() => copyToClipboard(caption, 'caption')}
+                          className="text-[10px] font-black uppercase text-zinc-500 hover:text-white flex items-center gap-1 transition-colors"
+                        >
+                          {copiedField === 'caption' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                          {copiedField === 'caption' ? 'Copiado' : 'Copiar'}
+                        </button>
+                      </div>
                       <textarea 
                         value={caption}
                         onChange={(e) => setCaption(e.target.value)}
@@ -379,9 +448,18 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
                       />
                     </div>
                     <div className="space-y-3">
-                      <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
-                        <Hash className="w-4 h-4 text-pink-500" /> Cluster de Hashtags
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                          <Hash className="w-4 h-4 text-pink-500" /> Cluster de Hashtags
+                        </label>
+                        <button 
+                          onClick={() => copyToClipboard(hashtags, 'hashtags')}
+                          className="text-[10px] font-black uppercase text-zinc-500 hover:text-white flex items-center gap-1 transition-colors"
+                        >
+                          {copiedField === 'hashtags' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                          {copiedField === 'hashtags' ? 'Copiado' : 'Copiar'}
+                        </button>
+                      </div>
                       <input 
                         type="text"
                         value={hashtags}

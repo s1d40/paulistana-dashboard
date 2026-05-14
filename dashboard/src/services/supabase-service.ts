@@ -23,6 +23,7 @@ export interface ContentPost {
   tipo_post?: string;
   id_conta?: string;
   titulo_post?: string;
+  hashtags?: string;
   images_status?: 'Pendente' | 'OK';
   audio_status?: 'Pendente' | 'OK';
   video_status?: 'Pendente' | 'OK';

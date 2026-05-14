@@ -26,6 +26,7 @@ export interface ContentPost {
   tipo_post?: string;
   id_conta?: string;
   titulo_post?: string;
+  hashtags?: string;
   imagens?: string;
   Audios?: string;
   Video?: string;
