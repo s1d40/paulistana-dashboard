@@ -1,0 +1,393 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { fetchContentPresets } from '@/services/supabase-service';
+import { supabase } from '@/lib/supabase';
+
+export interface SystemMessageSession {
+  id: string;
+  title: string;
+  content: string;
+  isEditable: boolean;
+  isEssential: boolean;
+}
+
+export type ContentType = 'video' | 'carrossel' | 'blog' | 'general';
+
+export interface Preset {
+  id: string;
+  name: string;
+  type: ContentType;
+  description: string;
+  sessions: SystemMessageSession[];
+  prompt: string;
+  model: string;
+  temperature: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PresetState {
+  presets: Preset[];
+  activePresetId: string | null;
+  isLoading: boolean;
+  initializePresets: () => Promise<void>;
+  addPreset: (preset: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updatePreset: (id: string, updates: Partial<Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>>) => void;
+  deletePreset: (id: string) => void;
+  setActivePreset: (id: string | null) => void;
+  clonePreset: (id: string, name: string, description: string) => Promise<string | null>;
+  createDraftPreset: (track: ContentType, explicitId?: string) => Promise<string | null>;
+  resetToDefaults: () => void;
+}
+
+export const usePresetStore = create<PresetState>()(
+  persist(
+    (set, get) => ({
+      presets: [],
+      activePresetId: null,
+      isLoading: false,
+
+      createDraftPreset: async (track, explicitId) => {
+        const id = explicitId || crypto.randomUUID();
+        
+        try {
+          // 1. Verificar se já existe para não sobrescrever dados
+          const { data: existing } = await supabase
+            .from('content_presets')
+            .select('id')
+            .eq('id', id)
+            .maybeSingle();
+
+          if (existing) {
+            console.log('[Store] Session already exists, skipping default upsert:', id);
+            await get().initializePresets();
+            set({ activePresetId: id });
+            return id;
+          }
+
+          const shortId = Math.random().toString(36).substring(2, 8).toUpperCase();
+          console.log('[Store] Creating new draft session:', id);
+
+          const { data, error } = await supabase
+            .from('content_presets')
+            .insert({
+              id: id,
+              name: `Draft: ${track} (${shortId})`,
+              description: 'Sandbox criado automaticamente para esta sessão.',
+              track: track,
+              sessions: BACKBONE_SESSIONS,
+              config: {
+                model: 'gpt-5.4',
+                temperature: 0.7,
+                prompt: 'Atue como um Roteirista Master. Sua tarefa é criar roteiros de alta performance, respeitando estritamente as sessões ativas deste Cocreator Studio. Retorne apenas o JSON final.'
+              }
+            })
+            .select()
+            .single();
+
+          if (error) {
+            console.error('[Supabase] Insert Error:', error.message, error.details);
+            throw error;
+          }
+          
+          await get().initializePresets();
+          set({ activePresetId: data.id });
+          return data.id;
+        } catch (error) {
+          console.error('Error creating/syncing draft preset:', error);
+          return null;
+        }
+      },
+
+      initializePresets: async () => {
+        set({ isLoading: true });
+        try {
+          const data = await fetchContentPresets();
+          console.log('[Store] Presets fetched from DB:', data.length);
+          
+          const mappedPresets: Preset[] = data.map((p) => ({
+            id: p.id as string,
+            name: p.name as string,
+            type: (p.track || 'general') as ContentType,
+            description: (p.description || '') as string,
+            sessions: (p.sessions || []) as SystemMessageSession[],
+            prompt: ((p.config as Record<string, unknown>)?.prompt || '') as string,
+            model: ((p.config as Record<string, unknown>)?.model || 'gpt-5.4') as string,
+            temperature: ((p.config as Record<string, unknown>)?.temperature ?? 0.7) as number,
+            createdAt: p.created_at as string,
+            updatedAt: p.updated_at as string,
+          }));
+
+          set({ 
+            presets: mappedPresets, 
+            activePresetId: get().activePresetId || (mappedPresets.length > 0 ? mappedPresets[0].id : null),
+            isLoading: false 
+          });
+
+        } catch (error) {
+          console.error('Error initializing presets:', error);
+          set({ isLoading: false });
+        }
+      },
+
+      clonePreset: async (id, name, description) => {
+        const source = get().presets.find(p => p.id === id);
+        if (!source) return null;
+
+        try {
+          const { data, error } = await supabase
+            .from('content_presets')
+            .insert({
+              name,
+              description,
+              track: source.type,
+              sessions: source.sessions,
+              config: {
+                model: source.model,
+                temperature: source.temperature,
+                prompt: source.prompt
+              }
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+          
+          await get().initializePresets();
+          return data.id;
+        } catch (error) {
+          console.error('Error cloning preset:', error);
+          return null;
+        }
+      },
+
+      addPreset: (presetData) => set((state) => {
+        const newPreset: Preset = {
+          ...presetData,
+          id: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        return {
+          presets: [...state.presets, newPreset],
+          activePresetId: state.presets.length === 0 ? newPreset.id : state.activePresetId,
+        };
+      }),
+
+      updatePreset: (id, updates) => set((state) => ({
+        presets: state.presets.map((preset) =>
+          preset.id === id
+            ? { ...preset, ...updates, updatedAt: new Date().toISOString() }
+            : preset
+        ),
+      })),
+
+      deletePreset: (id) => set((state) => ({
+        presets: state.presets.filter((preset) => preset.id !== id),
+        activePresetId: state.activePresetId === id ? null : state.activePresetId,
+      })),
+
+      setActivePreset: (id) => set({ activePresetId: id }),
+      
+      resetToDefaults: () => set(() => {
+        const newPresets = DEFAULT_PRESETS.map(p => ({
+          ...p,
+          id: crypto.randomUUID(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }));
+        return {
+          presets: newPresets,
+          activePresetId: newPresets[0].id
+        };
+      })
+    }),
+    {
+      name: 'n8n-presets-storage',
+    }
+  )
+);
+
+// Default Presets Data
+export const DEFAULT_PRESETS: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>[] = [
+  {
+    name: 'Vídeo Paulistana Master',
+    type: 'video',
+    description: 'Estratégia completa para TikTok Shop e Instagram baseada no framework Paulistana.',
+    model: 'gpt-5.4',
+    temperature: 0.7,
+    prompt: 'Atue como a IA Roteirista da marca \'Paulistana Empório\', especializada em alimentação saudável e suplementação natural. Sua tarefa é criar roteiros de alta performance para vídeos de Instagram e TikTok Shop, respeitando estritamente as sessões ativas do cockpit.',
+    sessions: [
+      {
+        id: 'persona',
+        title: 'Persona e Missão',
+        isEssential: true,
+        isEditable: true,
+        content: "Você é o Diretor Criativo Chefe da marca \"Paulistana Empório\", especializada em Alimentação Saudável e Suplementação Natural. Sua missão é criar roteiros de alta performance para duas frentes distintas: Vídeos Virais (Instagram/TikTok) e Anúncios Diretos (Mercado Livre/TikTok Shop). Você é mestre em \"Neuro-Marketing\", equilibrando autoridade em saúde, estética premium (\"Macro food photography\", \"Cinematic lifestyle\") e conversão de vendas."
+      },
+      {
+        id: 'slug_info',
+        title: 'Busca de Estoque',
+        isEssential: true,
+        isEditable: false,
+        content: "Você possui acesso à ferramenta Get_Slug_Info. Sempre que for criar um roteiro, você deve considerar os produtos listados no retorno desta ferramenta. O valor que você preencherá na chave slug_produto do seu output final DEVE SER OBRIGATORIAMENTE uma cópia exata do campo Slug_Imagem fornecido por esta ferramenta."
+      },
+      {
+        id: 'compliance',
+        title: 'Compliance de Saúde',
+        isEssential: true,
+        isEditable: true,
+        content: "Você está ESTRITAMENTE PROIBIDO de prometer curas médicas, emagrecimento milagroso ou diagnosticar doenças. Foque em termos como \"aliada poderosa\", \"fonte natural de energia\" e \"ajuda a mitigar o cansaço\"."
+      },
+      {
+        id: 'narracao',
+        title: 'Arte da Narração (TTS)',
+        isEssential: false,
+        isEditable: true,
+        content: "Nunca use dois pontos (:) ou traços (-) na narração. Escreva frases curtas e sensoriais. Foque em textura, aroma e sabor para que a IA de voz soe humana e envolvente."
+      },
+      {
+        id: 'framework',
+        title: 'Framework de Decisão',
+        isEssential: true,
+        isEditable: true,
+        content: "Ao receber o tema, identifique o destino do vídeo. \n\nINSTAGRAM: Foco em Dor > Solução. 9 a 12 cenas. Narração entre 12 a 20 palavras.\nTIKTOK SHOP: Foco em Retenção & Conversão Direta. 5 a 7 cenas. Ritmo acelerado. Comece apresentando o produto e suas características sensoriais."
+      },
+      {
+        id: 'estetica',
+        title: 'Estética Visual',
+        isEssential: false,
+        isEditable: true,
+        content: "Prompts 100% em inglês. Estética 'Cinematic Documentary'. Todo prompt visual DEVE terminar com: ', landscape ratio 16:9, centered composition, main subject perfectly in the middle, wide empty margins'. Varie as animações entre: zoom_in, zoom_out, pan_left, pan_right, pan_up. Nunca use a mesma animação em duas cenas seguidas. Prompt Negativo OBRIGATÓRIO: 'text, typography, watermark, letters, fonts, writing, words, signature, ugly, distorted'."
+      },
+      {
+        id: 'template',
+        title: 'Template JSON Obrigatório (Inviolável)',
+        isEssential: true,
+        isEditable: false,
+        content: "[ESTRUTURA DO ROTEIRO INTERNO JSON - TEMPLATE GENÉRICO]\nSua resposta DEVE ser EXCLUSIVAMENTE um objeto JSON estritamente válido. A estrutura abaixo é fixa e obrigatória:\n{\n  \"tipo_post\": \"video\",\n  \"tema\": \"...\",\n  \"titulo_otimizado\": \"Título Curto\",\n  \"caption_final\": \"Legenda das redes sociais\",\n  \"direcao_de_arte\": \"Estilo visual\",\n  \"cenas\": [\n    { \"numero\": 1, \"texto_narrado\": \"...\", \"prompt_visual\": \"...\", \"prompt_negativo\": \"...\", \"usa_referencia\": true, \"tipo_referencia\": \"produto_real\", \"slug_produto\": \"...\" }\n  ]\n}"
+      }
+    ]
+  },
+  {
+    name: 'Carrossel Satori Viral',
+    type: 'carrossel',
+    description: 'Estrategista de Retenção Visual e Copywriter Chefe focado em deslize extremo.',
+    model: 'gpt-5.4',
+    temperature: 0.7,
+    prompt: 'Crie um carrossel altamente viral reduzindo a carga cognitiva.',
+    sessions: [
+      {
+        id: 'persona',
+        title: 'Persona Criativa',
+        isEssential: true,
+        isEditable: true,
+        content: "Você é o Diretor Criativo e Estrategista de Retenção Visual da SFAI Solutions. Sua missão é transformar temas em carrosséis virais de 8 a 10 slides. Foco absoluto na redução da Carga Cognitiva: leitura em menos de 2 segundos."
+      },
+      {
+        id: 'nichos',
+        title: 'Diretrizes de Nicho',
+        isEssential: true,
+        isEditable: true,
+        content: "PERFIL A: Mistérios (Storytelling, Dourado, Dark-moody).\nPERFIL B: Saúde (Minimalista, Fotorrealismo cru, Textos escuros).\nPERFIL C: Arquétipos (Boho, Colagem vintage, Centro vazio)."
+      },
+      {
+        id: 'categorias',
+        title: 'Categorias de Slide',
+        isEssential: true,
+        isEditable: false,
+        content: "hook (Capa): Título monstruoso (max 45 char).\nbody (Miolo): Poucas palavras, sem listas. Crie slides consecutivos para múltiplos tópicos.\ncta (Ação): Slide final com actionIndicator.type: \"save-button\"."
+      },
+      {
+        id: 'estetica',
+        title: 'Visual e Tipografia',
+        isEssential: false,
+        isEditable: true,
+        content: "Use Fontes como Bebas Neue, Montserrat e Inter. Marque apenas UMA palavra por slide com ** para destaque. Se usar highlightStyle: \"box\", a cor deve ser clara/neon."
+      },
+      {
+        id: 'template',
+        title: 'Template JSON Obrigatório (Inviolável)',
+        isEssential: true,
+        isEditable: false,
+        content: "[ESTRUTURA DO ROTEIRO INTERNO JSON - CARROSSEL]\nSua resposta DEVE ser EXCLUSIVAMENTE um objeto JSON estritamente válido:\n{\n  \"tipo_post\": \"carrossel\",\n  \"tema\": \"...\",\n  \"cenas\": [\n    { \"numero\": 1, \"prompt_visual\": \"...\", \"payload_api\": { \"slideCategory\": \"hook\", \"content\": { \"headline\": \"...\", \"subHeadline\": \"...\" } } }\n  ]\n}"
+      }
+    ]
+  },
+  {
+    name: 'Blog SEO Autoridade',
+    type: 'blog',
+    description: 'Head de Technical SEO e Especialista em Nutrição Ortomolecular para artigos enciclopédicos.',
+    model: 'gpt-5.4',
+    temperature: 0.7,
+    prompt: 'Crie um artigo enciclopédico com alta autoridade tópica.',
+    sessions: [
+      {
+        id: 'persona',
+        title: 'Persona SEO',
+        isEssential: true,
+        isEditable: true,
+        content: "Você é o Diretor Criativo e Head de Technical SEO focado no blog do Empório Paulistana. Sua missão é criar artigos com profundidade enciclopédica e alta Autoridade Tópica (Skyscraper 2.0)."
+      },
+      {
+        id: 'estrutura',
+        title: 'Estrutura do Artigo',
+        isEssential: true,
+        isEditable: true,
+        content: "Introdução disruptiva (Myth-Busting). Citações obrigatórias (PubMed/Mayo Clinic). Cobertura de Entidades (NLP): taxonomia, mecanismos de ação, contraindicações. Mínimo 4 links internos."
+      },
+      {
+        id: 'html_visual',
+        title: 'Retenção Visual (HTML)',
+        isEssential: false,
+        isEditable: true,
+        content: "Injete Tabelas Clínicas, Boxes de Prós vs Contras e Blockquotes. Use Medical Review Byline no início ou fim."
+      },
+      {
+        id: 'template',
+        title: 'Estrutura de Dados (Inviolável)',
+        isEssential: true,
+        isEditable: false,
+        content: "[ESTRUTURA OBRIGATÓRIA - BLOG]\n{\n  \"tipo_post\": \"blog\",\n  \"title\": \"...\",\n  \"slug\": \"...\",\n  \"yoast_focuskw\": \"...\",\n  \"content\": \"<p>HTML aqui</p>\"\n}"
+      }
+    ]
+  }
+];
+
+export const BACKBONE_SESSIONS: SystemMessageSession[] = [
+  {
+    id: 'persona',
+    title: 'Persona e Missão',
+    isEssential: true,
+    isEditable: true,
+    content: ""
+  },
+  {
+    id: 'estetica',
+    title: 'Estética Visual',
+    isEssential: true,
+    isEditable: true,
+    content: "Prompts 100% em inglês. Formato 16:9 obrigatório."
+  },
+  {
+    id: 'narracao',
+    title: 'Arte da Narração (TTS)',
+    isEssential: true,
+    isEditable: true,
+    content: ""
+  },
+  {
+    id: 'framework',
+    title: 'Framework de Decisão',
+    isEssential: true,
+    isEditable: true,
+    content: "INSTAGRAM: 9-12 cenas. TIKTOK: 5-7 cenas."
+  },
+  {
+    id: 'template',
+    title: 'Template JSON (Sistema)',
+    isEssential: true,
+    isEditable: false,
+    content: "[ESTRUTURA OBRIGATÓRIA]\nSua resposta deve ser EXCLUSIVAMENTE um JSON válido. Use obrigatoriamente as chaves: numero, texto_narrado, prompt_visual e animacao. Para 'animacao', varie entre: zoom_in, zoom_out, pan_left, pan_right, pan_up, pan_down.\n{\n  \"tipo_post\": \"video\",\n  \"tema\": \"...\",\n  \"cenas\": [\n    { \"numero\": 1, \"texto_narrado\": \"...\", \"prompt_visual\": \"...\", \"animacao\": \"...\" }\n  ]\n}"
+  }
+];

@@ -1,0 +1,67 @@
+{
+  "description": "Especificação da Interface para o Workflow [TOOL] Worker_Supabase_Presets",
+  "version": "1.0",
+  "endpoint_workflow": "[TOOL] Worker_Supabase_Presets",
+  "contract": {
+    "common_fields": {
+      "action": "string (update_session | update_settings | save_as_new)",
+      "active_preset_id": "uuid (do preset sendo editado)",
+      "track": "string (ex: 'Alimentação Natural')"
+    },
+    "actions": {
+      "update_session": {
+        "description": "Atualiza o conteúdo de uma sessão específica (persona, narracao, etc)",
+        "payload": {
+          "session_id": "string (ID da sessão alvo)",
+          "new_content": "string (novo texto da sessão)"
+        }
+      },
+      "update_settings": {
+        "description": "Atualiza modelo, temperatura ou prompt global",
+        "payload": {
+          "model": "string (ex: 'gpt-5.4', 'claude-sonnet-4-6', 'models/gemini-3.1-pro-preview')",
+          "temperature": "float (0 a 1)",
+          "prompt": "string (novo comando global)"
+        }
+      },
+      "save_as_new": {
+        "description": "Snapshot das sessões atuais para um novo registro",
+        "payload": {
+          "name": "string (nome do novo preset)",
+          "description": "string (descrição da estratégia)",
+          "current_sessions": "array (lista de objetos de sessão vindos do dashboard)"
+        }
+      }
+    }
+  },
+  "example_calls": [
+    {
+      "case": "Mudar Persona",
+      "input": {
+        "action": "update_session",
+        "active_preset_id": "uuid-v4-aqui",
+        "session_id": "persona",
+        "new_content": "Você é um sommelier..."
+      }
+    },
+    {
+      "case": "Mudar Modelo e Temperatura",
+      "input": {
+        "action": "update_settings",
+        "active_preset_id": "uuid-v4-aqui",
+        "model": "gpt-5.4",
+        "temperature": 0.9
+      }
+    },
+    {
+      "case": "Salvar Nova Estratégia",
+      "input": {
+        "action": "save_as_new",
+        "active_preset_id": "uuid-v4-aqui",
+        "name": "TikTok Viral V2",
+        "description": "Focada em ganchos de 3 segundos",
+        "current_sessions": "[...]"
+      }
+    }
+  ]
+}

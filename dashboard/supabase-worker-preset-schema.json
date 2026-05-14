@@ -1,0 +1,28 @@
+{
+    "action": "update_session",
+    "ai_params": {
+        "session_id": "persona",
+        "new_content": "Você é um especialista em vinhos...",
+        "model": "gpt-4o",
+        "temperature": 0.8,
+        "prompt": "Comando de cockpit...",
+        "name": "Nova Estratégia",
+        "description": "Explicação técnica"
+    },
+    "system_context": {
+        "active_preset_id": "f6258c53-e129-4b94-99c0-300ed8238539",
+        "track": "video"
+    },
+    "sessions_snapshot": [
+        {
+            "id": "fidelidade",
+            "content": "Instruções de fidelidade...",
+            "isEssential": true
+        },
+        {
+            "id": "persona",
+            "content": "Instruções de persona...",
+            "isEssential": false
+        }
+    ]
+}

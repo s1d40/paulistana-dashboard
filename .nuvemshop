@@ -1,0 +1,5 @@
+app name: Dashboard
+app ID: 31029
+Client Secret: d2a57b8b70b28269cb7bda4fe40d651114aeee9365ff068a
+code : 7c68d50da36efcf0f0e94daa0e1977ff3aa548a5
+{"access_token":"30ff8ace5bbc8a6ef85e9cf92e0be2df52dc987e","token_type":"bearer","scope":"read_content,read_products,read_coupons,read_customers,read_orders,read_shipping,read_discounts,read_draft_orders,read_locations,read_fulfillment_orders,read_domains,read_subscriptions,read_email_templates,read_logistic,read_orders_risk","user_id":6832592}

@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "update_session",
+        "update_settings",
+        "save_as_new"
+      ],
+      "description": "REQUIRED. The action to perform: 'update_session' to modify a session, 'update_settings' for global AI parameters, or 'save_as_new' to create a snapshot."
+    },
+    "session_id": {
+      "type": "string",
+      "description": "OPTIONAL. The ID of the session to update (e.g., 'persona', 'narracao'). Required only for 'update_session'."
+    },
+    "new_content": {
+      "type": "string",
+      "description": "OPTIONAL. The new refined text for the session. Required only for 'update_session'."
+    },
+    "model": {
+      "type": "string",
+      "description": "OPTIONAL. New AI model (e.g., 'gpt-5.4', 'claude-sonnet-4-6', 'models/gemini-3.1-pro-preview'). Use only for 'update_settings' if requested."
+    },
+    "temperature": {
+      "type": "number",
+      "description": "OPTIONAL. Creativity level (0.0 to 1.0). Use only for 'update_settings' if requested."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "OPTIONAL. New global cockpit command prompt. Use only for 'update_settings' if requested."
+    },
+    "name": {
+      "type": "string",
+      "description": "OPTIONAL. Commercial name for the new preset. Required only for 'save_as_new'."
+    },
+    "description": {
+      "type": "string",
+      "description": "OPTIONAL. Technical strategy description. Required only for 'save_as_new'."
+    }
+  },
+  "required": [
+    "action"
+  ]
+}

@@ -1,0 +1,59 @@
+[
+  {
+    "execution": {
+      "id": "11698",
+      "url": "https://n8n.sfaisolutions.com/workflow/RKmkQ5KeoNPBf2l4/executions/11698",
+      "error": {
+        "level": "warning",
+        "tags": {},
+        "description": "The prompt field is empty or the expression used could not be resolved. Please check the configured prompt value.",
+        "timestamp": 1778465392886,
+        "context": {},
+        "functionality": "regular",
+        "name": "NodeOperationError",
+        "node": {
+          "parameters": {
+            "aiAgentStarterCallout": "",
+            "promptType": "define",
+            "text": "={{ $json.body.user_prompt }}",
+            "hasOutputParser": false,
+            "needsFallback": false,
+            "options": {
+              "systemMessage": "=# AI Architect Agent: System Message\n\n## 1. Persona\nVocê é o **Diretor de Arquitetura Criativa** da SFAI Solutions, responsável por projetar a inteligência por trás do Co-Creator Dashboard do Empório Paulistana. Você não escreve roteiros; você **projeta as instruções** (System Messages) que a IA Roteirista usará para gerar conteúdos virais e de alta conversão.\n\n## 2. Missão e Objetivo\nSeu papel é atuar como um Consultor de Engenharia de Prompt. Você deve ouvir a ideia bruta do usuário e traduzi-la em diretrizes técnicas e criativas dentro do sistema de \"Sessões\" de System Message. Seu objetivo final é garantir que o Preset de Produção esteja perfeitamente calibrado antes do usuário clicar em \"Gerar Roteiro\".\n\n## 3. Modo de Operação (State-Forward)\nVocê recebe em cada mensagem o estado atual das sessões criativas. Estas sessões representam as instruções atuais que o sistema está seguindo.\n\n**CONTEXTO ATUAL (Sessões Editáveis):**\n`{{ $json.body.current_sessions }}`\n\n**Procedimento de Análise:**\n1. **Identifique a Sessão:** Olhe para o array acima e escolha qual `id` (ex: 'persona', 'briefing_criativo') melhor se encaixa na mudança solicitada pelo usuário.\n2. **Refine:** Reescreva o `content` daquela sessão mantendo as boas práticas de engenharia de prompt.\n3. **Persista:** Use a ferramenta `update_supabase_preset(session_id, new_content)` para salvar a mudança.\n\n## 4. Regras de Engenharia de Prompt (As 5 Leis)\n1. **Densidade de Contexto:** Injete detalhes sensoriais (textura, aroma, frescor) nas instruções de Persona.\n2. **Proibição de Alucinação:** Mantenha os nomes \"Paulistana Empório\" e os slugs de produtos exatamente como recebidos.\n3. **Foco em Retenção:** Se o usuário pedir \"viralidade\", reforce as regras de \"Gancho Disruptivo\" na sessão de Narrativa.\n4. **Respeito aos Cadeados:** Você verá apenas sessões editáveis. Não tente recriar chaves JSON ou regras técnicas; o sistema já cuida disso nos bastidores.\n5. **Transparência:** Sempre informe ao usuário: \"Ajustei a sessão [NOME] para [DETALHE]\".\n\n## 5. Instruções da Ferramenta: `update_supabase_preset`\nEsta ferramenta é um **Executor de JavaScript Tático** que possui acesso direto ao banco de dados Supabase da SFAI Solutions. Ela é responsável por realizar a atualização atômica das sessões.\n\n**PARÂMETROS OBRIGATÓRIOS:**\n- `session_id`: O ID exato da sessão alvo (extraído do array `current_sessions`).\n- `new_content`: O texto refinado completo. **Este conteúdo deve ser uma string pura, mas se você precisar incluir exemplos dentro do texto, garanta que qualquer caractere especial seja tratado corretamente.**\n\n**COMPORTAMENTO DA FERRAMENTA:**\n1. Ela busca o preset completo (incluindo sessões travadas/essenciais).\n2. Ela substitui APENAS o conteúdo da sessão que você indicou.\n3. Ela persiste o novo estado no banco de dados, que será refletido instantaneamente na tela do usuário via Realtime.\n\n## 6. Regras de Output e Rigor Técnico\n- **Resposta ao Usuário:** Após chamar a ferramenta, você DEVE retornar uma mensagem de texto confirmando a ação. Nunca retorne JSON bruto para o usuário.\n- **Validação de JSON:** Embora você esteja editando texto criativo, lembre-se que este texto será injetado em um System Message final que gera JSON. Portanto, **é proibido usar aspas duplas (\") dentro do `new_content`**. Use sempre aspas simples (') para evitar quebrar o parser Node.js do Roteirista posterior.\n- **Fidelidade à Sessão:** Nunca tente fundir duas sessões em uma. Se o usuário quiser mudar a Persona e o CTA, chame a ferramenta duas vezes, uma para cada `session_id`.\n\n## 7. Exemplo de Chamada de Ferramenta\nSe você decidir mudar o tom da persona:\n`update_supabase_preset({ \"session_id\": \"persona\", \"new_content\": \"Você é um especialista em neuro-marketing focado em gatilhos de curiosidade...\" })`\n"
+            }
+          },
+          "type": "@n8n/n8n-nodes-langchain.agent",
+          "typeVersion": 3.1,
+          "position": [
+            768,
+            16
+          ],
+          "id": "616249b3-5cee-48f9-bb47-a2cc1edc3379",
+          "name": "AI Agent"
+        },
+        "messages": [],
+        "message": "No prompt specified",
+        "stack": "NodeOperationError: No prompt specified\n    at getPromptInputByType (/usr/lib/node_modules/n8n/node_modules/@n8n/n8n-nodes-langchain/utils/helpers.ts:42:10)\n    at prepareItemContext (/usr/lib/node_modules/n8n/node_modules/@n8n/n8n-nodes-langchain/nodes/agents/Agent/agents/ToolsAgent/V3/helpers/prepareItemContext.ts:47:36)\n    at /usr/lib/node_modules/n8n/node_modules/@n8n/n8n-nodes-langchain/nodes/agents/Agent/agents/ToolsAgent/V3/helpers/executeBatch.ts:78:47\n    at Array.map (<anonymous>)\n    at executeBatch (/usr/lib/node_modules/n8n/node_modules/@n8n/n8n-nodes-langchain/nodes/agents/Agent/agents/ToolsAgent/V3/helpers/executeBatch.ts:73:30)\n    at ExecuteContext.toolsAgentExecute (/usr/lib/node_modules/n8n/node_modules/@n8n/n8n-nodes-langchain/nodes/agents/Agent/agents/ToolsAgent/V3/execute.ts:46:84)\n    at ExecuteContext.execute (/usr/lib/node_modules/n8n/node_modules/@n8n/n8n-nodes-langchain/nodes/agents/Agent/V3/AgentV3.node.ts:151:10)\n    at WorkflowExecute.executeNode (/usr/lib/node_modules/n8n/node_modules/n8n-core/src/execution-engine/workflow-execute.ts:1048:9)\n    at WorkflowExecute.runNode (/usr/lib/node_modules/n8n/node_modules/n8n-core/src/execution-engine/workflow-execute.ts:1239:11)\n    at /usr/lib/node_modules/n8n/node_modules/n8n-core/src/execution-engine/workflow-execute.ts:1687:27\n    at /usr/lib/node_modules/n8n/node_modules/n8n-core/src/execution-engine/workflow-execute.ts:2339:11"
+      },
+      "lastNodeExecuted": "AI Agent",
+      "mode": "webhook",
+      "executionContext": {
+        "version": 1,
+        "establishedAt": 1778465392879,
+        "source": "webhook",
+        "redaction": {
+          "version": 1,
+          "policy": "none"
+        },
+        "triggerNode": {
+          "name": "Webhook",
+          "type": "n8n-nodes-base.webhook"
+        }
+      }
+    },
+    "workflow": {
+      "id": "RKmkQ5KeoNPBf2l4",
+      "name": "Worker_Roteiros"
+    }
+  }
+]

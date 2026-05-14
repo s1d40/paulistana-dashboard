@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+venv/
+studio_venv/
+temp_venv/
+.nuvemshop/
+
+# Credentials & Sensitive Data
+credentials/
+tokens/
+archive/
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!next.config.js
+!next.config.ts
+!postcss.config.js
+!postcss.config.mjs
+!tailwind.config.js
+!dashboard/agent_tool_schema.json
+!dashboard/worker_input_schema.json
+!dashboard/worker_presets_interface.json
+!dashboard/webhook.json
+!dashboard/supabase-worker-preset-schema.json
+!dashboard/worker_presets_interface.json
+!dashboard/agent_tool_schema.json
+!dashboard/worker_input_schema.json
+!dashboard/package.json
+!dashboard/package-lock.json
+!dashboard/tsconfig.json
+!dashboard/next.config.ts
+!dashboard/postcss.config.mjs
+!eslint.config.mjs
+!dashboard/eslint.config.mjs
+.env*
+.pinecone.secret
+.supabase.secret
+
+# Logs & Debug
+*.log
+execution_*.json
+.DS_Store
+
+# Next.js
+dashboard/.next/
+dashboard/out/
+
+# Gemini CLI
+.gemini/
+MEMORY.md

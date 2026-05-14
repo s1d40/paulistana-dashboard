@@ -1,0 +1,69 @@
+{
+  "title": "Worker_Supabase_Presets_Schema",
+  "description": "Schema para a ferramenta de gerenciamento de presets via Worker Workflow",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "update_session",
+          "update_settings",
+          "save_as_new"
+        ],
+        "description": "Ação a ser realizada no banco de dados."
+      },
+      "active_preset_id": {
+        "type": "string",
+        "description": "UUID do preset atual (Injetado automaticamente pelo sistema)."
+      },
+      "track": {
+        "type": "string",
+        "description": "Categoria do conteúdo (Injetado automaticamente pelo sistema)."
+      },
+      "session_id": {
+        "type": "string",
+        "description": "ID da sessão para update_session (ex: 'persona', 'narracao')."
+      },
+      "new_content": {
+        "type": "string",
+        "description": "O novo texto completo e refinado para a sessão."
+      },
+      "model": {
+        "type": "string",
+        "description": "Novo modelo de IA para update_settings (ex: 'gpt-5.4', 'claude-sonnet-4-6', 'models/gemini-3.1-pro-preview')."
+      },
+      "temperature": {
+        "type": "number",
+        "description": "Nova temperatura para update_settings (0.0 a 1.0)."
+      },
+      "prompt": {
+        "type": "string",
+        "description": "Novo prompt de comando para o cockpit."
+      },
+      "name": {
+        "type": "string",
+        "description": "NOME OBRIGATÓRIO: Nome comercial para o novo preset (ex: 'Estratégia Viral de Natal')."
+      },
+      "description": {
+        "type": "string",
+        "description": "DESCRIÇÃO OBRIGATÓRIA: Explicação técnica da estratégia."
+      },
+      "current_sessions": {
+        "type": "array",
+        "description": "Array completo de sessões (Injetado automaticamente pelo sistema)."
+      }
+    },
+    "required": [
+      "action",
+      "name",
+      "description"
+    ]
+  },
+  "n8n_expressions_mapping": {
+    "active_preset_id": "{{ $('Webhook').item.json.body.active_preset_id }}",
+    "track": "{{ $('Webhook').item.json.body.track }}",
+    "current_sessions": "={{ $('Webhook').item.json.body.current_sessions }}"
+  },
+  "javascript_code": "const webhook = $('Webhook').item.json.body;\n\n// Garante que name e description existam no payload final\nconst payload = {\n  ...$json,\n  name: $json.name || $json.input?.name,\n  description: $json.description || $json.input?.description,\n  active_preset_id: webhook.active_preset_id,\n  track: webhook.track,\n  current_sessions: webhook.current_sessions\n};\n\nif (!payload.name || !payload.description) {\n  throw new Error('O Agente deve fornecer name e description para salvar como novo preset.');\n}\n\nreturn await $workflow.execute('[TOOL] Worker_Supabase_Presets', payload);"
+}

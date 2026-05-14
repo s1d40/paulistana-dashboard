@@ -1,0 +1,401 @@
+'use client';
+
+import { useState, useMemo, Suspense } from 'react';
+import { FileText, Clock, CheckCircle2, ExternalLink, RefreshCcw, Loader2, PlayCircle, Plus, Share2, Sparkles, Layout, Video, Image as ImageIcon } from 'lucide-react';
+import { ContentPost } from '@/services/supabase-service';
+import clsx from 'clsx';
+import PostDetailModal from './components/post-detail-modal';
+import { useQuery } from '@tanstack/react-query';
+import { useContentFilters } from '@/hooks/use-content-filters';
+import FiltersBar from './components/filters-bar';
+import Link from 'next/link';
+
+const fetchPosts = async (): Promise<ContentPost[]> => {
+  const response = await fetch('/api/content');
+  if (!response.ok) {
+    throw new Error('Falha ao carregar conteúdo');
+  }
+  const data = await response.json();
+  return data.reverse();
+};
+
+function ConteudoContent() {
+  const { filters, updateFilters } = useContentFilters();
+  const postsPerPage = 12;
+
+  const [activeTab, setActiveTab] = useState<'all' | 'video' | 'carrossel' | 'blog'>('all');
+
+  // Modal de Detalhes
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [isApproving, setIsApproving] = useState<string | null>(null);
+  const [isRendering, setIsRendering] = useState<string | null>(null);
+
+  const { data: allPosts = [], isLoading, isError, error, refetch, isFetching } = useQuery({
+    queryKey: ['contentPosts'],
+    queryFn: fetchPosts,
+  });
+
+  const handleRefresh = async () => {
+    updateFilters({ page: 1 });
+    await refetch();
+  };
+
+  const handleApprove = async (postId: string) => {
+    if (!postId) return;
+    
+    setIsApproving(postId);
+    try {
+      const res = await fetch('/api/content/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId }),
+      });
+
+      if (!res.ok) throw new Error('Falha na requisição');
+      
+      alert('Solicitação de aprovação enviada ao n8n!');
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao enviar solicitação de aprovação.');
+    } finally {
+      setIsApproving(null);
+    }
+  };
+
+  const handleRender = async (postId: string) => {
+    if (!postId) return;
+    
+    setIsRendering(postId);
+    try {
+      const res = await fetch('/api/content/render', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId }),
+      });
+
+      if (!res.ok) throw new Error('Falha na requisição');
+      
+      alert('Renderização enviada ao n8n! O vídeo ficará pronto em instantes.');
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao enviar solicitação de renderização.');
+    } finally {
+      setIsRendering(null);
+    }
+  };
+
+  // Lógica de Filtragem e Ordenação
+  const filteredPosts = useMemo(() => {
+    let result = [...allPosts];
+
+    // Busca
+    if (filters.searchQuery) {
+      const q = filters.searchQuery.toLowerCase();
+      result = result.filter(post => 
+        post.titulo_post?.toLowerCase().includes(q) ||
+        post.tema_post?.toLowerCase().includes(q) ||
+        post.id_post?.toLowerCase().includes(q) ||
+        post.captions?.toLowerCase().includes(q) ||
+        post.roteiro_gerado?.toLowerCase().includes(q)
+      );
+    }
+
+    // Status
+    if (filters.status.length > 0) {
+      result = result.filter(post => filters.status.includes(post.status || 'Pendente'));
+    }
+
+    // Plataforma / Tipo (Integrando com as novas abas)
+    if (activeTab !== 'all') {
+      result = result.filter(post => {
+        const type = (post.tipo_post || '').toLowerCase();
+        if (activeTab === 'video') return type.includes('video') || type.includes('tiktok');
+        if (activeTab === 'carrossel') return type.includes('carrossel');
+        if (activeTab === 'blog') return type.includes('blog');
+        return true;
+      });
+    }
+
+    if (filters.platform.length > 0) {
+      result = result.filter(post => {
+        const postPlatforms = (post.tipo_post || 'Instagram').split(',').map(s => s.trim());
+        return filters.platform.some(p => postPlatforms.includes(p));
+      });
+    }
+
+    // Ordenação
+    result.sort((a, b) => {
+      let valA: string | number = (a[filters.sortBy as keyof ContentPost] as string | number | undefined) || '';
+      let valB: string | number = (b[filters.sortBy as keyof ContentPost] as string | number | undefined) || '';
+
+      if (filters.sortBy === 'createdAt') {
+        valA = new Date(a.data_criacao || 0).getTime();
+        valB = new Date(b.data_criacao || 0).getTime();
+      }
+
+      if (filters.sortOrder === 'asc') {
+        return valA > valB ? 1 : -1;
+      } else {
+        return valA < valB ? 1 : -1;
+      }
+    });
+
+    return result;
+  }, [allPosts, filters, activeTab]);
+
+  const paginatedPosts = filteredPosts.slice(
+    (filters.page - 1) * postsPerPage,
+    filters.page * postsPerPage
+  );
+
+  const totalPages = Math.ceil(filteredPosts.length / postsPerPage);
+
+  const loading = isLoading || isFetching;
+
+  return (
+    <main className="flex-1 bg-[#0c0a09] min-h-screen relative overflow-x-hidden font-sans selection:bg-orange-500/30">
+      {/* Background Decorativo Dusk */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-900/20 blur-[120px] rounded-full opacity-50" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-orange-900/10 blur-[120px] rounded-full opacity-50" />
+        <div className="absolute top-[20%] right-[10%] w-[30%] h-[30%] bg-indigo-900/10 blur-[120px] rounded-full opacity-50" />
+      </div>
+
+      <div className="relative max-w-7xl mx-auto p-6 md:p-12 space-y-10">
+        
+        {/* Header Dusk */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+          <div className="space-y-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-black uppercase tracking-[0.2em] w-fit">
+              <Sparkles className="w-3 h-3" />
+              Content Studio v3.0
+            </div>
+            <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-white uppercase italic">
+              Biblioteca de <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-orange-500 to-purple-600">Conteúdo</span>
+            </h1>
+            <p className="text-zinc-500 text-lg font-medium max-w-xl">
+              Orquestre seu ecossistema digital com <span className="text-zinc-300">Inteligência Artificial</span> e estética premium.
+            </p>
+          </div>
+          
+          <div className="flex items-center gap-3">
+            <Link 
+              href="/conteudo/publicar"
+              className="group flex items-center gap-2 px-5 py-3 bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 text-zinc-400 hover:text-white rounded-2xl transition-all shadow-xl text-xs font-black uppercase tracking-widest"
+            >
+              <Share2 className="w-4 h-4 text-indigo-500 group-hover:scale-110 transition-transform" />
+              Social Hub
+            </Link>
+            <Link 
+              href="/conteudo/novo"
+              className="flex items-center gap-2 px-6 py-3 bg-white hover:bg-zinc-200 text-black rounded-2xl transition-all shadow-xl shadow-white/5 text-xs font-black uppercase tracking-widest group"
+            >
+              <Plus className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
+              Novo Post
+            </Link>
+            <button 
+              onClick={handleRefresh}
+              disabled={loading}
+              className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl hover:bg-zinc-800 transition-all text-zinc-500 hover:text-orange-400 disabled:opacity-50"
+            >
+              <RefreshCcw className={clsx("w-5 h-5", loading && "animate-spin")} />
+            </button>
+          </div>
+        </div>
+
+        {/* Custom Tabs Navigation */}
+        <div className="flex items-center gap-2 p-1.5 bg-zinc-900/50 border border-zinc-800/50 rounded-2xl w-fit backdrop-blur-xl">
+          {[
+            { id: 'all', label: 'Todos', icon: Layout },
+            { id: 'video', label: 'Vídeos', icon: Video },
+            { id: 'carrossel', label: 'Carrosséis', icon: ImageIcon },
+            { id: 'blog', label: 'Blog', icon: FileText },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => {
+                setActiveTab(tab.id as 'all' | 'video' | 'carrossel' | 'blog');
+                updateFilters({ page: 1 });
+              }}
+              className={clsx(
+                "flex items-center gap-2 px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.15em] transition-all",
+                activeTab === tab.id 
+                  ? "bg-zinc-800 text-white shadow-lg border border-zinc-700/50" 
+                  : "text-zinc-500 hover:text-zinc-300"
+              )}
+            >
+              <tab.icon className={clsx("w-3.5 h-3.5", activeTab === tab.id ? "text-orange-500" : "text-zinc-600")} />
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Filters Bar Context */}
+        <div className="bg-zinc-900/30 border border-zinc-800/50 rounded-3xl p-2 backdrop-blur-sm">
+          <FiltersBar />
+        </div>
+
+        {/* Content Display */}
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="h-80 bg-zinc-900/50 border border-zinc-800/50 rounded-[2.5rem] animate-pulse"></div>
+            ))}
+          </div>
+        ) : isError ? (
+          <div className="p-12 text-center bg-red-950/20 border border-red-900/50 rounded-[2.5rem]">
+            <h3 className="text-xl font-black uppercase tracking-widest text-red-500 mb-2">System Failure</h3>
+            <p className="text-red-400/70 text-sm font-medium">{error instanceof Error ? error.message : 'Erro ao carregar ecossistema de conteúdo.'}</p>
+          </div>
+        ) : filteredPosts.length === 0 ? (
+          <div className="p-20 text-center bg-zinc-900/20 border border-zinc-800/50 rounded-[3rem] backdrop-blur-sm">
+            <div className="w-20 h-20 bg-zinc-900 rounded-[2rem] flex items-center justify-center mx-auto mb-6 border border-zinc-800">
+              <FileText className="w-10 h-10 text-zinc-700" />
+            </div>
+            <h3 className="text-2xl font-black uppercase tracking-tighter text-white mb-2">Vazio Absoluto</h3>
+            <p className="text-zinc-500 font-medium">Nenhum registro encontrado nesta frequência.</p>
+          </div>
+        ) : (
+          <div className="space-y-12">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+              {paginatedPosts.map((post, idx) => {
+                const status = post.status || 'Pendente_Geracao';
+                const isPosted = status.toLowerCase() === 'postado' || status === 'Publicado';
+                const isError = status === 'Erro';
+                const isGenerating = status === 'Gerando';
+              
+              return (
+                <div key={post.id_post || idx} className="flex flex-col bg-zinc-900/40 border border-zinc-800/50 rounded-[2.5rem] overflow-hidden hover:border-orange-500/30 hover:shadow-2xl hover:shadow-orange-500/5 transition-all duration-500 group relative backdrop-blur-xl">
+                  
+                  {/* Status Indicator Bar */}
+                  <div className={clsx(
+                    "absolute top-0 left-0 right-0 h-1.5",
+                    isPosted ? "bg-emerald-500" :
+                    isError ? "bg-red-500" :
+                    isGenerating ? "bg-indigo-500" :
+                    "bg-orange-500"
+                  )} />
+
+                  {/* Card Header */}
+                  <div className="px-8 pt-8 pb-4 flex justify-between items-start">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-600">Post ID</span>
+                      <span className="text-[10px] font-mono text-zinc-400">
+                        #{post.id_post?.substring(0, 8)}
+                      </span>
+                    </div>
+                    
+                    <div className={clsx(
+                      "flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                      isPosted ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" :
+                      isError ? "bg-red-500/10 text-red-500 border-red-500/20" :
+                      isGenerating ? "bg-indigo-500/10 text-indigo-500 border-indigo-500/20 animate-pulse" :
+                      "bg-orange-500/10 text-orange-500 border-orange-500/20"
+                    )}>
+                      {isPosted ? <CheckCircle2 className="w-3 h-3" /> : isGenerating ? <RefreshCcw className="w-3 h-3 animate-spin" /> : <Clock className="w-3 h-3" />}
+                      {status.replace('_', ' ')}
+                    </div>
+                  </div>
+
+                  {/* Card Body */}
+                  <div className="px-8 py-4 flex-1 flex flex-col gap-4">
+                    <h3 className="text-xl font-black text-white leading-tight tracking-tight group-hover:text-orange-400 transition-colors line-clamp-2">
+                      {post.titulo_post || post.tema_post || 'Sem título'}
+                    </h3>
+                    
+                    <p className="text-xs text-zinc-500 line-clamp-3 flex-1 font-medium leading-relaxed italic">
+                      &quot;{post.roteiro_gerado || 'Nenhum roteiro gerado para este post.'}&quot;
+                    </p>
+
+                    <div className="flex flex-wrap gap-2 pt-2">
+                      {(post.tipo_post || 'Instagram').split(',').map(p => (
+                        <span key={p} className="text-[8px] font-black uppercase tracking-widest text-zinc-500 bg-zinc-800/50 px-2 py-1 rounded-lg border border-zinc-800">
+                          {p.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Card Footer Actions */}
+                  <div className="p-6 bg-zinc-950/50 mt-4 border-t border-zinc-800/30 flex justify-between items-center">
+                    <div className="flex gap-2">
+                      <button 
+                        className="p-2.5 bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 text-zinc-500 hover:text-emerald-500 rounded-xl transition-all disabled:opacity-50"
+                        onClick={() => handleApprove(post.id_post)}
+                        disabled={!!isApproving || !!isRendering}
+                        title="Aprovar Briefing"
+                      >
+                        {isApproving === post.id_post ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                      </button>
+
+                      <button 
+                        className="p-2.5 bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 text-zinc-500 hover:text-indigo-500 rounded-xl transition-all disabled:opacity-50"
+                        onClick={() => handleRender(post.id_post)}
+                        disabled={!!isApproving || !!isRendering}
+                        title="Renderizar Vídeo"
+                      >
+                        {isRendering === post.id_post ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    
+                    <button 
+                      className="flex items-center gap-2 px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all group/btn"
+                      onClick={() => setSelectedPostId(post.id_post)}
+                    >
+                      Detalhes <ExternalLink className="w-3.5 h-3.5 group-hover/btn:translate-x-1 group-hover/btn:-translate-y-1 transition-transform" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            </div>
+            
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex flex-col md:flex-row items-center justify-between gap-6 pt-12 border-t border-zinc-800/50">
+                <div className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-600">
+                  Página <span className="text-zinc-300">{filters.page}</span> de <span className="text-zinc-300">{totalPages}</span> — <span className="text-zinc-300">{filteredPosts.length}</span> Entradas
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => updateFilters({ page: Math.max(1, filters.page - 1) })}
+                    disabled={filters.page === 1}
+                    className="px-6 py-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white disabled:opacity-20 transition-all"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    onClick={() => updateFilters({ page: Math.min(totalPages, filters.page + 1) })}
+                    disabled={filters.page === totalPages}
+                    className="px-6 py-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white disabled:opacity-20 transition-all"
+                  >
+                    Próxima
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <PostDetailModal 
+        postId={selectedPostId || ''} 
+        isOpen={!!selectedPostId} 
+        onClose={() => setSelectedPostId(null)} 
+      />
+    </main>
+  );
+}
+
+export default function ConteudoPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex-1 flex flex-col items-center justify-center min-h-screen bg-zinc-50 dark:bg-zinc-950">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-4" />
+        <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs">Carregando Biblioteca...</p>
+      </div>
+    }>
+      <ConteudoContent />
+    </Suspense>
+  );
+}

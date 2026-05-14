@@ -1,0 +1,40 @@
+O Fluxo Perfeito para Rastreamento em Tempo Real
+Veja como a responsabilidade muda e como o seu painel ganha controle total da situação:
+
+1. O Clique e a Geração (No Next.js)
+O usuário clica em "Iniciar Produção em Massa". Neste exato milissegundo, o código JavaScript do seu Dashboard (Next.js) roda um loop na lista de produtos e gera um UUID seguro para cada um deles.
+
+2. A Pré-Reserva no Banco / Sheets
+Ainda no Next.js, você salva esses itens na sua planilha (ou futuro Supabase) com o status inicial.
+
+Exemplo: ID: b3f9c2d1... | Produto: Ameixa Seca | Status: Aguardando IA.
+
+Mágica: Como o Next.js acabou de gerar esses IDs, a sua interface (o frontend) já sabe exatamente quais IDs ela precisa ficar "escutando" para atualizar a barra de progresso.
+
+3. O Disparo para o n8n
+Agora sim, o Next.js manda o Webhook para o n8n. Mas em vez de mandar apenas "Gere vídeos para a campanha X", ele manda o pacote completo com os IDs:
+
+JSON
+{
+  "action": "mass_production",
+  "items": [
+    {"uuid": "b3f9c2d1-...", "produto": "Ameixa Seca"},
+    {"uuid": "f8e3c6a4-...", "produto": "Castanha do Pará"}
+  ]
+}
+4. A Esteira Trabalha (No n8n)
+O n8n recebe o Webhook, responde com um "Ok, recebi 19 itens" (HTTP 200) e começa a iterar no Loop (Split in Batches).
+
+O n8n passa o uuid e o nome do produto para a IA gerar o roteiro.
+
+A IA devolve o roteiro.
+
+O n8n usa o nó de Google Sheets (Update Row). Ele procura por aquele uuid específico e atualiza: Status: Roteiro Criado. Renderizando Vídeo...
+
+5. A Tela Pisca (No Next.js)
+Como a sua tela do Paulistana BI já estava de olho naqueles UUIDs específicos (fazendo um polling ou via WebSocket), quando o n8n atualiza a linha na planilha, o Dashboard pega a mudança e atualiza a bolinha de status para verde na frente do usuário, sem ele precisar recarregar a página.
+
+Resumo da Mudança
+Ao invés do nó Crypto do n8n criar o ID lá no meio do caminho, você remove esse nó Crypto. O n8n passa apenas a receber o ID que já veio pronto do Next.js e usa esse ID como "chave de busca" para atualizar a planilha a cada etapa concluída (Roteiro pronto > Áudio gerado > Vídeo finalizado).
+
+Isso deixa o seu frontend 100% no controle da interface e o n8n 100% focado apenas em rodar o trabalho pesado nos bastidores. Faz sentido aplicar essa lógica na sua chamada do Webhook no Next.js?
