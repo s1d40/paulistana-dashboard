@@ -1,12 +1,12 @@
 'use client';
 
-import { Video, Layout, FileText, Sparkles, ArrowRight } from 'lucide-react';
+import { Video, Layout, FileText, Sparkles, ArrowRight, Loader2, Users } from 'lucide-react';
 import Link from 'next/link';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { initializePostInSupabase } from '@/services/supabase-service';
-import { Loader2 } from 'lucide-react';
+import { initializePostInSupabase, Account } from '@/services/supabase-service';
+import AccountSelector from '@/components/account-selector';
 
 const tracks = [
   {
@@ -43,23 +43,32 @@ const tracks = [
 
     export default function NovoConteudoPage() {
     const [loadingId, setLoadingId] = useState<string | null>(null);
+    const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
     const router = useRouter();
 
     const handleTrackSelection = async (track: typeof tracks[0]) => {
     if (track.disabled) return;
+    
+    if (!selectedAccount) {
+      alert('Por favor, selecione uma conta antes de iniciar.');
+      return;
+    }
+
     setLoadingId(track.id);
     try {
-      const uuid = crypto.randomUUID();
+      const uuid = typeof crypto !== 'undefined' && crypto.randomUUID 
+        ? crypto.randomUUID() 
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+          });
 
-      // Inicializa o post com o UUID que servirá de Session ID
-      // Usamos IDs padrão para conta/cliente por enquanto
       await initializePostInSupabase(
         { uuid, produto: `Novo ${track.title} (Briefing)` },
         track.type_name,
-        'b3f9c2d1-7e84-4a56-9d2b-1f8e3c6a4b90' // Paulistana Principal
+        selectedAccount.id_conta
       );
 
-      // Redireciona para o chat passando o ID do post como sessão
       router.push(`/conteudo/chat?track=${track.id}&id_post=${uuid}`);
     } catch (error) {
       console.error('Erro ao iniciar produção:', error);
@@ -80,14 +89,34 @@ const tracks = [
           <p className="text-zinc-500 dark:text-zinc-400">Selecione o formato de conteúdo para iniciar o direcionamento criativo.</p>
         </div>
 
+        {/* Account Selection Section */}
+        <div className="max-w-md mx-auto space-y-4 p-8 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-[2rem] shadow-sm">
+           <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-zinc-100 dark:bg-zinc-800 rounded-lg">
+                <Users className="w-4 h-4 text-zinc-500" />
+              </div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Passo 1: Selecione a Conta</span>
+           </div>
+           <AccountSelector onSelect={(acc) => setSelectedAccount(acc)} />
+           {selectedAccount && (
+             <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest animate-in fade-in slide-in-from-left-2">
+                ✓ Ativo para: {selectedAccount.nome_conta}
+             </p>
+           )}
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {tracks.map((track) => (
             <button 
               key={track.id} 
               disabled={loadingId !== null || track.disabled}
               onClick={() => handleTrackSelection(track)}
-              className={`group p-8 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl transition-all duration-300 ${track.disabled ? 'opacity-40 grayscale cursor-not-allowed' : track.hover} flex flex-col items-center text-center space-y-6 shadow-sm hover:shadow-xl hover:-translate-y-1 disabled:opacity-50`}
+              className={`group p-8 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl transition-all duration-300 ${track.disabled ? 'opacity-40 grayscale cursor-not-allowed' : !selectedAccount ? 'opacity-50 grayscale' : track.hover} flex flex-col items-center text-center space-y-6 shadow-sm hover:shadow-xl hover:-translate-y-1 disabled:opacity-50 relative`}
             >
+              {!selectedAccount && !track.disabled && (
+                <div className="absolute inset-0 bg-white/5 dark:bg-black/5 z-10 flex items-center justify-center pointer-events-none" />
+              )}
+              
               <div className={`${track.disabled ? 'bg-zinc-500' : track.color} p-4 rounded-2xl text-white shadow-lg group-hover:scale-110 transition-transform duration-300`}>
                 {loadingId === track.id ? (
                   <Loader2 className="w-8 h-8 animate-spin" />
@@ -100,8 +129,8 @@ const tracks = [
                 <p className="text-sm text-zinc-500 dark:text-zinc-400 leading-relaxed">{track.description}</p>
               </div>
               <div className="pt-4 flex items-center gap-2 text-xs font-black uppercase tracking-widest text-zinc-400 group-hover:text-zinc-900 dark:group-hover:text-white transition-colors">
-                {track.disabled ? 'Em breve' : loadingId === track.id ? 'Inicializando...' : 'Iniciar Chat'}
-                {!track.disabled && <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />}
+                {track.disabled ? 'Em breve' : !selectedAccount ? 'Bloqueado' : loadingId === track.id ? 'Inicializando...' : 'Iniciar Chat'}
+                {!track.disabled && selectedAccount && <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />}
               </div>
             </button>
           ))}

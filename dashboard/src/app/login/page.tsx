@@ -1,6 +1,6 @@
 'use client';
 
-import { supabase } from '@/lib/supabase';
+import { signIn } from 'next-auth/react';
 import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Sparkles, Layout, AlertTriangle } from 'lucide-react';
@@ -15,13 +15,7 @@ function LoginContent() {
   const handleLogin = async () => {
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
-      });
-      if (error) throw error;
+      await signIn('google', { callbackUrl: '/' });
     } catch (err) {
       console.error('Login error:', err);
       alert('Erro ao tentar logar com o Google.');

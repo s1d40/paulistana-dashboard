@@ -7,7 +7,8 @@ import {
   Save, 
   Hash, Layout, Smartphone, PenTool, Sparkles,
   Monitor, PlayCircle, Camera, CheckCircle2,
-  Globe, Share2, Send, ExternalLink, Download, Copy, Check
+  Globe, Share2, Send, ExternalLink, Download, Copy, Check,
+  CalendarDays
 } from 'lucide-react';
 import { fetchPostDetails, PostDetailsPayload, Account } from '@/services/supabase-service';
 import clsx from 'clsx';
@@ -43,6 +44,7 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
   const [hashtags, setHashtags] = useState('');
   const [ytTitle, setYtTitle] = useState('');
   const [ytDescription, setYtDescription] = useState('');
+  const [scheduleDate, setScheduleDate] = useState<string>('');
   const [ytTags, setYtTags] = useState('');
 
   const handlePublish = async (platform: string) => {
@@ -88,6 +90,7 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
           setCaption(data.post.captions || data.post.roteiro_gerado || '');
           setHashtags(data.post.hashtags || '');
           setYtTitle(data.post.titulo_post || '');
+          setScheduleDate(data.post.data_agendamento ? new Date(data.post.data_agendamento).toISOString().slice(0, 16) : '');
         }
       } catch (err) {
         setError('Erro ao carregar detalhes do post');
@@ -141,6 +144,8 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
           captions: caption,
           hashtags: hashtags,
           titulo_post: ytTitle,
+          data_agendamento: scheduleDate || null,
+          status_agendamento: scheduleDate ? 'agendado' : 'nao_agendado'
         }),
       });
 
@@ -333,9 +338,31 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
 
                   {/* Publishing Kit (Captions & Hashtags) */}
                   <div className="space-y-6 pt-10 border-t border-zinc-800/50">
-                    <h4 className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-zinc-500">
-                      <Sparkles className="w-4 h-4 text-orange-500" /> Kit de Publicação Rápida
-                    </h4>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                      <h4 className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-zinc-500">
+                        <Sparkles className="w-4 h-4 text-orange-500" /> Kit de Publicação Rápida
+                      </h4>
+
+                      {/* Agendamento de Post */}
+                      <div className="flex items-center gap-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-2xl shadow-inner group">
+                        <div className="flex items-center gap-2">
+                           <CalendarDays className={clsx("w-4 h-4", scheduleDate ? "text-indigo-400" : "text-zinc-600")} />
+                           <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Agendar:</span>
+                        </div>
+                        <input 
+                          type="datetime-local" 
+                          value={scheduleDate}
+                          onChange={(e) => setScheduleDate(e.target.value)}
+                          className="bg-transparent border-none text-[10px] font-bold text-zinc-300 outline-none focus:ring-0 cursor-pointer"
+                        />
+                        {scheduleDate && (
+                          <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-lg animate-in fade-in zoom-in">
+                            <div className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse" />
+                            <span className="text-[8px] font-black uppercase text-indigo-400">Pendente</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="p-6 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl space-y-4 relative group">

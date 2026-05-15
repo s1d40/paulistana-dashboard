@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchProducts } from '@/services/supabase-service';
 
 export const maxDuration = 60; // Aumentado para dar tempo do n8n acionar tools
 
@@ -14,8 +15,22 @@ export async function POST(req: Request) {
       model,  // Scriptwriter Model
       temperature,
       architect_model, // Novo: Modelo do Arquiteto (UI Sidebar)
-      architect_prompt // Novo: DNA do Arquiteto (UI Sidebar)
+      architect_prompt, // Novo: DNA do Arquiteto (UI Sidebar)
+      use_real_products // Novo: Flag para usar slugs de produtos reais
     } = await req.json();
+
+    // 0. FETCH PRODUCTS IF NEEDED
+    let productsContext = '';
+    if (use_real_products) {
+      const products = await fetchProducts();
+      productsContext = [
+        `## BANCO DE PRODUTOS (REFERÊNCIAS REAIS)`,
+        `Você tem acesso aos slugs das embalagens e imagens reais dos produtos.`,
+        `Ao configurar as cenas, se 'Produtos Reais' estiver ativo, você DEVE instruir o Roteirista a usar o campo 'slug_produto'.`,
+        `---`,
+        ...products.map(p => `- PRODUTO: ${p.Produto} | SLUG: ${p.slug_embalagem}`)
+      ].join('\n');
+    }
 
     // URL do seu novo Worker_Director no n8n (Agente Arquiteto)
     const N8N_DIRECTOR_WEBHOOK = 'https://n8n.sfaisolutions.com/webhook/3a3f27a3-75a4-4b48-b961-945eda83539d';
@@ -58,7 +73,8 @@ const cockpitPreview = [
   `Nunca use blocos de código JSON na sua resposta ao usuário.`,
   `---`,
   `## DIRETRIZES DE PRODUÇÃO ATUAIS:`,
-  ...strategicSessions.map((s) => `### CARD: ${s.title.toUpperCase()} (ID: ${s.id})\nCONTEÚDO: ${s.content || '(Vazio - Use update_session para preencher)'}`)
+  ...strategicSessions.map((s) => `### CARD: ${s.title.toUpperCase()} (ID: ${s.id})\nCONTEÚDO: ${s.content || '(Vazio - Use update_session para preencher)'}`),
+  productsContext
 ].join('\n\n');
 
     // 3. MERGE FINAL MASTIGADO
@@ -72,7 +88,8 @@ const cockpitPreview = [
       scriptwriter_config: {
         model: model || 'gpt-5.4',
         temperature: temperature ?? 0.7,
-        global_prompt: prompt
+        global_prompt: prompt,
+        use_real_products: !!use_real_products
       },
       track: track,
       sessions_snapshot: current_sessions

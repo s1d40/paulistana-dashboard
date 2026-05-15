@@ -73,6 +73,7 @@ function ChatContent() {
   // --- COCREATOR (ARCHITECT) DNA ---
   const [arcModel, setArcModel] = useState('models/gemini-3.1-pro-preview');
   const [arcPrompt, setArcPrompt] = useState(DEFAULT_ARCHITECT_PROMPT);
+  const [useRealProducts, setUseRealProducts] = useState(false);
   const [isArcSidebarOpen, setIsArcSidebarOpen] = useState(false);
 
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
@@ -294,7 +295,8 @@ function ChatContent() {
           
           // ARCHITECT IDENTITY OVERRIDE
           architect_model: arcModel,
-          architect_prompt: arcPrompt
+          architect_prompt: arcPrompt,
+          use_real_products: useRealProducts
         }),
       });
 
@@ -642,6 +644,38 @@ function ChatContent() {
                 <option value="claude-sonnet-4-6">Claude 4.6 (Stylist)</option>
                 <option value="models/gemini-3.1-pro-preview">Gemini 3.1 Pro (Architect)</option>
               </select>
+            </div>
+
+            <div className="pt-2">
+              <label className="flex items-center justify-between p-4 bg-zinc-950 border border-zinc-800 rounded-2xl cursor-pointer group hover:border-indigo-500/50 transition-all shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className={clsx(
+                    "p-2 rounded-lg transition-colors",
+                    useRealProducts ? "bg-emerald-500/20 text-emerald-400" : "bg-zinc-800 text-zinc-500"
+                  )}>
+                    <Database className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase text-zinc-200 tracking-tight">Produtos Reais</span>
+                    <span className="text-[8px] font-medium text-zinc-500">Usar slugs da DB</span>
+                  </div>
+                </div>
+                <input 
+                  type="checkbox" 
+                  checked={useRealProducts} 
+                  onChange={(e) => setUseRealProducts(e.target.checked)}
+                  className="hidden" 
+                />
+                <div className={clsx(
+                  "w-8 h-4 rounded-full relative transition-all duration-300",
+                  useRealProducts ? "bg-emerald-500" : "bg-zinc-800"
+                )}>
+                  <div className={clsx(
+                    "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-sm",
+                    useRealProducts ? "left-4.5" : "left-0.5"
+                  )} />
+                </div>
+              </label>
             </div>
           </div>
           <div className="flex-1 flex flex-col gap-2 min-h-0">

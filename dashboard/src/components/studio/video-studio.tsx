@@ -4,7 +4,7 @@ import {
   Sparkles, Settings2, 
   Image as ImageIcon, Film, Music, Clock,
   Play, Volume2, RefreshCw, Send, AlertTriangle, CheckCircle2,
-  Camera, Video, Globe
+  Camera, Video, Globe, Database
 } from 'lucide-react';
 import { useProductionQueue } from '@/store/production-queue';
 import { PostImage, PostAudio, PostVideoCena, PostVideo, ContentPost, Account, Product } from '@/services/google-sheets';
@@ -406,14 +406,20 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                    </select>
                 </div>
                 <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Referência Visual</label>
+                   <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest flex items-center gap-2">
+                     Referência Visual
+                     {currentScene?.slug_produto && <Database className="w-3 h-3 text-emerald-500 animate-pulse" />}
+                   </label>
                    <select 
                     value={currentScene?.slug_produto || ''}
                     onChange={(e) => updateScene(selectedSceneIdx, { 
                       slug_produto: e.target.value,
                       usa_referencia: !!e.target.value 
                     })}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-[10px] font-bold text-zinc-400 outline-none appearance-none"
+                    className={clsx(
+                      "w-full bg-zinc-950 border rounded-xl p-3 text-[10px] font-bold outline-none appearance-none transition-all",
+                      currentScene?.slug_produto ? "border-emerald-500/50 text-emerald-400" : "border-zinc-800 text-zinc-400"
+                    )}
                    >
                      <option value="">Nenhum (Somente IA)</option>
                      {products.map(p => (
@@ -488,6 +494,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                        <div className="px-1.5 py-0.5 bg-black/80 backdrop-blur-md text-[8px] font-black text-white rounded-md border border-white/10">
                          #{cena.numero}
                        </div>
+                       {cena.slug_produto && (
+                         <div className="px-1.5 py-0.5 bg-emerald-500/80 backdrop-blur-md text-[8px] font-black text-white rounded-md border border-emerald-400/20 flex items-center gap-1 shadow-lg">
+                           <Database className="w-2.5 h-2.5" />
+                           PR REAL
+                         </div>
+                       )}
                     </div>
 
                     {/* Progress Dots */}

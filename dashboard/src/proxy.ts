@@ -1,10 +1,20 @@
+import { auth } from "@/auth"
 import { NextResponse } from 'next/server'
-// import { updateSession } from '@/utils/supabase/proxy'
+import type { NextRequest } from 'next/server'
 
-export async function proxy() {
-  // ATENÇÃO: Autenticação desativada temporariamente para testes na VPS Hetzner via IP.
-  // Descomente a linha abaixo e o import quando o domínio e o Google OAuth estiverem configurados.
-  // return await updateSession(request)
+export async function proxy(request: NextRequest) {
+  const session = await auth()
+  
+  const isLoginPage = request.nextUrl.pathname === '/login'
+
+  if (!session && !isLoginPage) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
+
+  if (session && isLoginPage) {
+    return NextResponse.redirect(new URL('/', request.url))
+  }
+
   return NextResponse.next()
 }
 

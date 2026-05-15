@@ -24,6 +24,8 @@ export interface ContentPost {
   id_conta?: string;
   titulo_post?: string;
   hashtags?: string;
+  data_agendamento?: string;
+  status_agendamento?: string;
   images_status?: 'Pendente' | 'OK';
   audio_status?: 'Pendente' | 'OK';
   video_status?: 'Pendente' | 'OK';

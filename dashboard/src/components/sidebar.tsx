@@ -13,14 +13,17 @@ import {
   Share2,
   ChevronLeft,
   ChevronRight,
-  KanbanSquare
+  KanbanSquare,
+  LogOut
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useState } from 'react';
+import { signOut } from 'next-auth/react';
 
 const mainNavigation = [
   { name: 'Visão Geral', href: '/', icon: LayoutDashboard },
   { name: 'Mural de Ideias', href: '/board', icon: KanbanSquare },
+  { name: 'Cronograma', href: '/cronograma', icon: Calendar },
 ];
 
 const contentNavigation = [
@@ -176,14 +179,25 @@ export default function Sidebar() {
       </div>
       
       {/* Bottom Profile/Settings */}
-      <div className="border-t border-zinc-200 dark:border-zinc-800 p-4">
-        <a href="#" className={clsx(
+      <div className="border-t border-zinc-200 dark:border-zinc-800 p-4 space-y-2">
+        <Link href="/presets" className={clsx(
           "flex items-center gap-x-4 px-2 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 rounded-md transition-colors",
           isCollapsed && "justify-center"
         )}>
           <Settings className="h-5 w-5 text-zinc-400" />
           {!isCollapsed && <span>Configurações</span>}
-        </a>
+        </Link>
+
+        <button 
+          onClick={() => signOut({ callbackUrl: '/login' })}
+          className={clsx(
+            "w-full flex items-center gap-x-4 px-2 py-2 text-sm font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-md transition-colors",
+            isCollapsed && "justify-center"
+          )}
+        >
+          <LogOut className="h-5 w-5" />
+          {!isCollapsed && <span>Sair do Painel</span>}
+        </button>
       </div>
     </div>
   );
