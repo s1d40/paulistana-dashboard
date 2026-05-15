@@ -231,3 +231,67 @@ export async function updatePostInSupabase(id_post: string, updates: Partial<Con
 
   if (error) throw error;
 }
+
+export async function deletePostFromSupabase(id_post: string) {
+  // Try to delete from posts (and it should cascade to videos/cenas if DB constraints are set, or just delete the main post)
+  const { error: postError } = await supabase.from('posts').delete().eq('id_post', id_post);
+  if (postError) throw postError;
+
+  // Also try to delete from content_presets just in case
+  await supabase.from('content_presets').delete().eq('id', id_post);
+}
+
+export async function duplicatePostAsDraft(oldId: string): Promise<string> {
+  const newId = typeof crypto !== 'undefined' && crypto.randomUUID 
+    ? crypto.randomUUID() 
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+
+  // 1. Fetch old post
+  const { data: oldPost } = await supabase.from('posts').select('*').eq('id_post', oldId).single();
+  
+  if (oldPost) {
+    // 2. Insert new post (copy metadata, but no roteiro_gerado)
+    await supabase.from('posts').insert({
+      id_post: newId,
+      tema_post: oldPost.tema_post,
+      titulo_post: oldPost.titulo_post,
+      tipo_post: oldPost.tipo_post,
+      id_conta: oldPost.id_conta,
+      status: 'Aguardando IA',
+      data_criacao: new Date().toISOString(),
+      images_status: 'Pendente',
+      audio_status: 'Pendente',
+      video_status: 'Pendente'
+    });
+  }
+
+  // 3. Fetch old preset
+  const { data: oldPreset } = await supabase.from('content_presets').select('*').eq('id', oldId).single();
+
+  if (oldPreset) {
+    // 4. Insert new preset with a unique name to avoid content_presets_name_key constraint
+    const uniqueSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const newName = oldPreset.name.includes('(Clone') 
+      ? `${oldPreset.name.split('(Clone')[0].trim()} (Clone ${uniqueSuffix})`
+      : `${oldPreset.name} (Clone ${uniqueSuffix})`;
+
+    const { error: presetError } = await supabase.from('content_presets').insert({
+      id: newId,
+      name: newName,
+      description: oldPreset.description,
+      track: oldPreset.track,
+      config: oldPreset.config,
+      sessions: oldPreset.sessions
+    });
+    
+    if (presetError) {
+      console.error(`Error duplicating preset: code=${presetError.code}, msg=${presetError.message}, details=${presetError.details}`);
+      throw presetError;
+    }
+  }
+
+  return newId;
+}

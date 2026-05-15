@@ -4,7 +4,7 @@ export const maxDuration = 120; // Aumentado pois geração de roteiro complexo 
 
 export async function POST(req: Request) {
   try {
-    const { user_prompt, system_message, config } = await req.json();
+    const { user_prompt, system_message, config, image_url, image_url_packaging } = await req.json();
 
     // URL do seu novo Worker_Roteirista Stateless no n8n
     const N8N_ROTEIRISTA_WEBHOOK = 'https://n8n.sfaisolutions.com/webhook/1a24782d-a935-454f-af0a-be3a57e42a32';
@@ -18,6 +18,8 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         user_prompt,
         system_message,
+        image_url,
+        image_url_packaging,
         config: config || { temperature: 0.7, model: "gpt-5.4" }
       }),
     });

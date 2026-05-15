@@ -2,9 +2,9 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchPostDetails, updatePostInSupabase, ContentPost, PostDetailsPayload, Account } from '@/services/supabase-service';
+import { fetchPostDetails, updatePostInSupabase, duplicatePostAsDraft, ContentPost, PostDetailsPayload, Account } from '@/services/supabase-service';
 import { ScriptStudio } from '@/components/studio/script-studio';
-import { Loader2, ArrowLeft, Save, Play, Sparkles, Film } from 'lucide-react';
+import { Loader2, ArrowLeft, Save, Play, Sparkles, Film, Bot } from 'lucide-react';
 import { useProductionQueue } from '@/store/production-queue';
 import { supabase } from '@/lib/supabase';
 
@@ -15,8 +15,10 @@ export default function TimelineEditorPage() {
   const [details, setDetails] = useState<PostDetailsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDuplicating, setIsDuplicating] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const { generateAssets, renderAllScenes, compileFinalVideo, isProcessing } = useProductionQueue();
+  const [automationState, setAutomationState] = useState<'idle' | 'waiting_assets' | 'waiting_scenes'>('idle');
 
   useEffect(() => {
     const loadAccounts = async () => {
@@ -135,6 +137,57 @@ export default function TimelineEditorPage() {
     return () => clearInterval(pollingInterval);
   }, [id, refreshAssets]);
 
+  // --- SEQUENTIAL AUTOMATION LOGIC ---
+  useEffect(() => {
+    if (automationState === 'idle' || !details || !details.post?.roteiro_gerado) return;
+
+    const script = JSON.parse(details.post.roteiro_gerado);
+    const scenes = script.cenas || [];
+
+    if (automationState === 'waiting_assets') {
+      const hasAllAssets = scenes.every((scene: { numero: number | string }) => {
+        const hasImg = details.imagens.some(img => Number(img.numero_cena) === Number(scene.numero));
+        const hasAud = details.audios.some(aud => Number(aud.numero_cena) === Number(scene.numero));
+        return hasImg && hasAud;
+      });
+
+      if (hasAllAssets && !isProcessingRef.current) {
+        setAutomationState('waiting_scenes');
+        alert('Assets gerados com sucesso! Iniciando renderização das cenas restantes...');
+        
+        const scenesToRender = scenes.filter((scene: { numero: number | string }) => {
+          return !details.videos_cenas?.some(v => Number(v.numero_cena) === Number(scene.numero));
+        });
+
+        if (scenesToRender.length > 0) {
+          renderAllScenes(id as string, scenesToRender, details.imagens, details.audios).catch(err => {
+             console.error(err);
+             setAutomationState('idle');
+             alert('Erro ao iniciar renderização na automação.');
+          });
+        }
+      }
+    } else if (automationState === 'waiting_scenes') {
+      const hasAllVideos = scenes.every((scene: { numero: number | string }) => {
+        return details.videos_cenas?.some(v => Number(v.numero_cena) === Number(scene.numero));
+      });
+
+      if (hasAllVideos && !isProcessingRef.current) {
+        setAutomationState('idle');
+        const proceed = confirm('Todas as cenas foram renderizadas! Deseja compilar o vídeo final agora?');
+        if (proceed) {
+          const urls = (details.videos_cenas || [])
+            .sort((a, b) => a.numero_cena - b.numero_cena)
+            .map(v => v.video_url);
+          compileFinalVideo(id as string, urls).catch(err => {
+             console.error(err);
+             alert('Erro ao iniciar compilação.');
+          });
+        }
+      }
+    }
+  }, [details, automationState, id, renderAllScenes, compileFinalVideo]);
+
   const handleGenerateAssets = async () => {
     if (!details?.post?.roteiro_gerado) return;
     
@@ -187,24 +240,45 @@ export default function TimelineEditorPage() {
     
     const script = JSON.parse(details.post.roteiro_gerado);
     const scenes = script.cenas;
-    const hasAnyVideo = details.videos_cenas && details.videos_cenas.length > 0;
-    const allVideosReady = details.videos_cenas && details.videos_cenas.length >= scenes.length;
+    
+    const hasAllAssets = scenes.every((scene: { numero: number | string }) => {
+      const hasImg = details.imagens.some(img => Number(img.numero_cena) === Number(scene.numero));
+      const hasAud = details.audios.some(aud => Number(aud.numero_cena) === Number(scene.numero));
+      return hasImg && hasAud;
+    });
 
-    if (!hasAnyVideo) {
-      const proceed = confirm('Nada pronto ainda. Isto vai gerar todos os assets e renderizar o vídeo final de forma sequencial. Prosseguir?');
+    const hasAllVideos = scenes.every((scene: { numero: number | string }) => {
+      return details.videos_cenas?.some(v => Number(v.numero_cena) === Number(scene.numero));
+    });
+
+    if (!hasAllAssets) {
+      const proceed = confirm('Existem assets pendentes. O sistema irá gerar os assets ausentes, renderizar as cenas restantes e compilar o vídeo final. Prosseguir?');
       if (proceed) {
-        // Full automation logic - in a real scenario we'd need a worker that chains everything
-        // For now, we trigger the asset generation.
-        await generateAssets(id as string, scenes, script.voice_settings);
-        alert('Produção sequencial iniciada: Gerando Assets primeiro. O sistema tentará seguir para renderização automaticamente (verifique o log do worker).');
+        const scenesWithMissingAssets = scenes.filter((scene: { numero: number | string }) => {
+          const hasImg = details.imagens.some(img => Number(img.numero_cena) === Number(scene.numero));
+          const hasAud = details.audios.some(aud => Number(aud.numero_cena) === Number(scene.numero));
+          return !(hasImg && hasAud);
+        });
+        
+        setAutomationState('waiting_assets');
+        await generateAssets(id as string, scenesWithMissingAssets, script.voice_settings);
         return;
       }
       return;
     }
 
-    if (!allVideosReady) {
-      const proceed = confirm('Algumas cenas ainda não foram renderizadas. Deseja renderizar o que falta e compilar o vídeo final?');
-      if (!proceed) return;
+    if (!hasAllVideos) {
+      const proceed = confirm('Algumas cenas ainda não foram renderizadas. O sistema irá renderizar as pendentes e compilar o vídeo. Prosseguir?');
+      if (proceed) {
+        const scenesToRender = scenes.filter((scene: { numero: number | string }) => {
+          return !details.videos_cenas?.some(v => Number(v.numero_cena) === Number(scene.numero));
+        });
+
+        setAutomationState('waiting_scenes');
+        await renderAllScenes(id as string, scenesToRender, details.imagens, details.audios);
+        return;
+      }
+      return;
     }
 
     const urls = (details.videos_cenas || [])
@@ -216,7 +290,7 @@ export default function TimelineEditorPage() {
       return;
     }
     
-    const confirmCompile = confirm('Deseja iniciar a compilação do vídeo master final?');
+    const confirmCompile = confirm('Tudo pronto! Deseja iniciar a compilação do vídeo master final?');
     if (!confirmCompile) return;
 
     await compileFinalVideo(id as string, urls);
@@ -280,6 +354,23 @@ export default function TimelineEditorPage() {
     }
   };
 
+  const handleDuplicateToArchitect = async () => {
+    if (!id) return;
+    const proceed = confirm('Deseja criar um novo rascunho em branco para gerar uma nova versão com o Arquiteto? O post atual continuará salvo na sua biblioteca intacto.');
+    if (!proceed) return;
+
+    setIsDuplicating(true);
+    try {
+      const newId = await duplicatePostAsDraft(id as string);
+      router.push(`/conteudo/chat?id_post=${newId}`);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao criar rascunho.');
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-screen space-y-4 bg-zinc-950 text-white">
@@ -299,6 +390,17 @@ export default function TimelineEditorPage() {
           <button onClick={() => router.push('/conteudo')} className="p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-400">
             <ArrowLeft className="w-5 h-5" />
           </button>
+          
+          <button 
+            onClick={handleDuplicateToArchitect}
+            disabled={isDuplicating || isProcessing}
+            className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+            title="Voltar para o Arquiteto e gerar uma nova versão"
+          >
+            {isDuplicating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bot className="w-3.5 h-3.5" />}
+            Voltar p/ Arquiteto
+          </button>
+
           <div className="flex flex-col min-w-0 flex-1 max-w-2xl">
             <div className="flex items-center gap-3">
               <input 

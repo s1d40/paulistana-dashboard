@@ -26,6 +26,7 @@ interface RenderPayload {
   audio_url: string;
   timestamps_url: string;
   animacao: string;
+  image_reference_url?: string;
 }
 
 interface ProductionQueueState {
@@ -35,8 +36,8 @@ interface ProductionQueueState {
   
   startProduction: (postId: string, scenes: ProductionScene[], voiceSettings?: ElevenLabsVoiceSettings) => Promise<void>;
   generateAssets: (postId: string, scenes: ProductionScene[], voiceSettings?: ElevenLabsVoiceSettings) => Promise<void>;
-  generateSceneAssets: (postId: string, scene: ProductionScene, voiceSettings?: ElevenLabsVoiceSettings) => Promise<void>;
-  generateSceneImage: (postId: string, scene: ProductionScene) => Promise<void>;
+  generateSceneAssets: (postId: string, scene: ProductionScene, voiceSettings?: ElevenLabsVoiceSettings, imageReferenceUrl?: string) => Promise<void>;
+  generateSceneImage: (postId: string, scene: ProductionScene, imageReferenceUrl?: string) => Promise<void>;
   generateSceneAudio: (postId: string, scene: ProductionScene, voiceSettings?: ElevenLabsVoiceSettings) => Promise<void>;
   renderScene: (postId: string, scene: ProductionScene, renderData: RenderPayload) => Promise<void>;
   renderAllScenes: (postId: string, scenes: ProductionScene[], allImagens: PostImage[], allAudios: PostAudio[]) => Promise<void>;
@@ -59,7 +60,7 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
 
   reset: () => set({ isProcessing: false, activePostId: null, progress: {} }),
 
-  generateSceneImage: async (postId, scene) => {
+  generateSceneImage: async (postId, scene, imageReferenceUrl) => {
     const n = scene.numero;
     const videoScene = scene as VideoScene;
     const carrosselScene = scene as CarrosselScene;
@@ -84,7 +85,8 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
           numero_cena: n, 
           replicate: videoScene.replicate,
           payload_api: carrosselScene.payload_api,
-          is_carrossel: !!isCarrossel
+          is_carrossel: !!isCarrossel,
+          image_reference_url: imageReferenceUrl // Pass the resolved GCS URL
         })
       });
       set(state => ({ progress: { ...state.progress, [n]: { ...state.progress[n], image: 'success' } } }));
@@ -131,13 +133,13 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
     }
   },
 
-  generateSceneAssets: async (postId, scene, voiceSettings) => {
+  generateSceneAssets: async (postId, scene, voiceSettings, imageReferenceUrl) => {
     const state = get();
     set({ isProcessing: true });
     try {
       await state.generateSceneAudio(postId, scene, voiceSettings);
       await sleep(2000);
-      await state.generateSceneImage(postId, scene);
+      await state.generateSceneImage(postId, scene, imageReferenceUrl);
     } finally {
       // Small delay before setting to false to allow n8n a head start
       setTimeout(() => set({ isProcessing: false }), 2000);
@@ -149,10 +151,20 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
     const state = get();
     try {
       for (const scene of scenes) {
-        // Individual calls don't set processing=false anymore
+        // Resolve reference URL if needed
+        const videoScene = scene as VideoScene;
+        let refUrl = undefined;
+        if (videoScene.usa_referencia && videoScene.slug_produto) {
+          const GCS_BASE_URL = 'https://storage.googleapis.com/cocreator_content';
+          const folder = videoScene.tipo_referencia === 'embalagem' ? 'embalagem' : 'produtos_reais';
+          const slug = videoScene.slug_produto.split(',')[0].trim();
+          const fileName = slug.includes('.') ? slug : `${slug}.png`;
+          refUrl = `${GCS_BASE_URL}/${folder}/${fileName}`;
+        }
+
         await state.generateSceneAudio(postId, scene, voiceSettings);
         await sleep(2000);
-        await state.generateSceneImage(postId, scene);
+        await state.generateSceneImage(postId, scene, refUrl);
         await sleep(4000);
       }
     } finally {
@@ -206,11 +218,22 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
       const sceneImg = allImagens.find(img => Number(img.numero_cena) === n);
       const sceneAud = allAudios.find(aud => Number(aud.numero_cena) === n);
       
+      const videoScene = scene as VideoScene;
+      let refUrl = undefined;
+      if (videoScene.usa_referencia && videoScene.slug_produto) {
+        const GCS_BASE_URL = 'https://storage.googleapis.com/cocreator_content';
+        const folder = videoScene.tipo_referencia === 'embalagem' ? 'embalagem' : 'produtos_reais';
+        const slug = videoScene.slug_produto.split(',')[0].trim();
+        const fileName = slug.includes('.') ? slug : `${slug}.png`;
+        refUrl = `${GCS_BASE_URL}/${folder}/${fileName}`;
+      }
+
       const renderData: RenderPayload = {
         image_url: sceneImg?.image_url || '',
         audio_url: sceneAud?.audio_url || '',
         timestamps_url: sceneAud?.timestamps || '',
-        animacao: (scene as VideoScene).animacao || 'zoom_in'
+        animacao: (scene as VideoScene).animacao || 'zoom_in',
+        image_reference_url: refUrl
       };
 
       if (!renderData.image_url || !renderData.audio_url || !renderData.timestamps_url) {

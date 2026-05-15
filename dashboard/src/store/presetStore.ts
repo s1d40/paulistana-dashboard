@@ -3,6 +3,14 @@ import { persist } from 'zustand/middleware';
 import { fetchContentPresets } from '@/services/supabase-service';
 import { supabase } from '@/lib/supabase';
 
+export interface RenderPayload {
+  image_url: string;
+  audio_url: string;
+  timestamps_url: string;
+  animacao: string;
+  image_reference_url?: string;
+}
+
 export interface SystemMessageSession {
   id: string;
   title: string;
@@ -230,7 +238,7 @@ export const DEFAULT_PRESETS: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>[] =
         title: 'Busca de Estoque',
         isEssential: true,
         isEditable: false,
-        content: "Você possui acesso à ferramenta Get_Slug_Info. Sempre que for criar um roteiro, você deve considerar os produtos listados no retorno desta ferramenta. O valor que você preencherá na chave slug_produto do seu output final DEVE SER OBRIGATORIAMENTE uma cópia exata do campo Slug_Imagem fornecido por esta ferramenta."
+        content: "Você possui acesso à ferramenta Get_Slug_Info. Sempre que for criar um roteiro, você deve considerar os produtos listados no retorno desta ferramenta. O valor que você preencherá na chave slug_produto do seu output final DEVE SER OBRIGATORIAMENTE uma cópia exata do campo Slug_Imagem fornecido por esta ferramenta. IMPORTANTE: Nas cenas iniciais use a referência de produto_real, mas na cena final de CTA, use obrigatoriamente a referência de embalagem."
       },
       {
         id: 'compliance',
@@ -251,7 +259,14 @@ export const DEFAULT_PRESETS: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>[] =
         title: 'Framework de Decisão',
         isEssential: true,
         isEditable: true,
-        content: "Ao receber o tema, identifique o destino do vídeo. \n\nINSTAGRAM: Foco em Dor > Solução. 9 a 12 cenas. Narração entre 12 a 20 palavras.\nTIKTOK SHOP: Foco em Retenção & Conversão Direta. 5 a 7 cenas. Ritmo acelerado. Comece apresentando o produto e suas características sensoriais."
+        content: "Ao receber o tema, identifique o destino do vídeo. \n\nINSTAGRAM: Foco em Dor > Solução. 9 a 12 cenas. Narração entre 12 a 20 palavras.\nTIKTOK SHOP: Foco em Retenção & Conversão Direta. 5 a 7 cenas. Ritmo acelerado. Comece apresentando o produto e suas características sensoriais.\n\nREGRA FINAL: O vídeo deve terminar obrigatoriamente com a imagem da embalagem e a narração: 'Não perca tempo! Garanta já o seu na Paulistana Empório'."
+      },
+      {
+        id: 'hashtags',
+        title: 'Hashtags Estratégicas',
+        isEssential: false,
+        isEditable: true,
+        content: "O Arquiteto preencherá este card com as hashtags após a conversa."
       },
       {
         id: 'estetica',
@@ -351,6 +366,70 @@ export const DEFAULT_PRESETS: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>[] =
         content: "[ESTRUTURA OBRIGATÓRIA - BLOG]\n{\n  \"tipo_post\": \"blog\",\n  \"title\": \"...\",\n  \"slug\": \"...\",\n  \"yoast_focuskw\": \"...\",\n  \"content\": \"<p>HTML aqui</p>\"\n}"
       }
     ]
+  },
+  {
+    id: 'marketplace-conversion',
+    name: 'Vídeo Marketplace',
+    description: 'Framework para anúncios focados em venda direta ESTRITAMENTE para Marketplace (Mercado Livre, Amazon, TikTok Shop).',
+    prompt: 'CRIE AGORA O ROTEIRO E INICIE A PRODUÇÃO EXCLUSIVAMENTE PARA ESTE PRODUTO ABAIXO. IGNORE QUALQUER PRODUTO ANTERIOR.\n\nNome do Produto: [PRODUTO]\nSlug da Imagem: [SLUG]\n\n[RESTRIÇÕES ESPECÍFICAS DESTE PRODUTO]\nRestrição Narrativa: [NARRATIVA]\nRestrição Visual: [VISUAL]\n\nInstrução Final: Respeite as restrições acima. Você DEVE usar estritamente o "Nome do Produto" e o "Slug da Imagem" declarados nesta mensagem.',
+    sessions: [
+      {
+        id: 'persona',
+        title: 'Persona e Missão',
+        isEssential: true,
+        isEditable: true,
+        content: "Gestor de Produção e Diretor Criativo da Paulistana Empório. Missão: criar roteiro de alta conversão para TikTok Shop/Mercado Livre de forma 100% autônoma. Ágil, persuasivo e focado em execução técnica."
+      },
+      {
+        id: 'framework',
+        title: 'Framework de Decisão',
+        isEssential: true,
+        isEditable: true,
+        content: "ARQUITETURA (5-7 cenas, 25-35s. 10 a 15 palavras/cena):\n\n1. Gancho Visual: Primeira frase DEVE apresentar o produto REAL. A marca NÃO deve aparecer no início.\n\n2. Solução Sensorial: Textura, sabor natural, praticidade. Intercale macro shots com cenários de lifestyle pertinentes ao produto.\n\n3. CTA Final: A marca 'Paulistana Empório' aparece APENAS aqui. Narração: 'Não perca tempo! Clique no botão abaixo e garanta já o seu da Paulistana Empório'."
+      },
+      {
+        id: 'estetica',
+        title: 'Estética Visual',
+        isEssential: false,
+        isEditable: true,
+        content: "Prompts OBRIGATORIAMENTE em inglês. Modelo Padrão: 'google/nano-banana'.\nTODO prompt DEVE terminar com: ', landscape ratio 16:9, centered composition, main subject perfectly in the middle, wide empty margins'.\nPROIBIDO adicionar elementos que alterem o produto ou sua embalagem. Foque em cenários de fundo variados (clean, rustic) e iluminação dinâmica."
+      },
+      {
+        id: 'compliance',
+        title: 'Compliance / Prompt Negativo',
+        isEssential: false,
+        isEditable: true,
+        content: "Saúde: ESTRITAMENTE PROIBIDO prometer curas, emagrecimento milagroso ou diagnosticar doenças.\nClichês: NUNCA afirme 'separados individualmente' ou 'feitos com carinho'.\nPrompt Negativo OBRIGATÓRIO: 'text, typography, watermark, letters, fonts, writing, words, signature, ugly, distorted, larvae, bugs, white rocks, chunky stones, worms, gross textures, extra objects, altering elements'."
+      },
+      {
+        id: 'narracao',
+        title: 'Arte da Narração',
+        isEssential: false,
+        isEditable: true,
+        content: "Corrija erros gramaticais do nome do produto no áudio. Tom realista e direto. ESTRITAMENTE PROIBIDO usar adjetivos hiperbólicos ('explosão de sabores', 'o melhor do mundo'). Frases diretas e curtas. Evite vírgulas. Nunca use dois pontos (:) ou traços (-) na narração."
+      },
+      {
+        id: 'slug_info',
+        title: 'Gerenciamento de Assets',
+        isEssential: true,
+        isEditable: true,
+        content: "A chave 'usa_referencia' DEVE SER 'true' em TODAS as cenas.\nNas cenas 1 até a penúltima, use 'tipo_referencia': 'produto_real'.\nNa cena final (CTA), use 'tipo_referencia': 'embalagem'.\nA chave 'slug_produto' deve conter a string enviada pelo usuário em TODAS as cenas."
+      },
+      {
+        id: 'hashtags',
+        title: 'Hashtags Estratégicas',
+        isEssential: false,
+        isEditable: true,
+        content: "Caption Final (TikTok Shop):\n- Gancho em CAIXA ALTA com emoji.\n- 3 motivos curtos com check (✅).\n- CTA com urgência e 'Paulistana Empório'.\n- Mínimo 5 hashtags nichadas."
+      },
+      {
+        id: 'template',
+        title: 'Template JSON (Sistema)',
+        isEssential: true,
+        isEditable: false,
+        content: "{\n  \"tipo_post\": \"TikTok Shop\",\n  \"tema\": \"Título\",\n  \"titulo_otimizado\": \"Título Curto\",\n  \"caption_final\": \"Caption com CTA e hashtags\",\n  \"direcao_de_arte\": \"Estética macro e lifestyle\",\n  \"cenas\": [\n    {\n      \"numero\": 1,\n      \"modelo_ia\": \"google/nano-banana\",\n      \"texto_narrado\": \"Conheça o(a) [PRODUTO]...\",\n      \"prompt_visual\": \"Macro aesthetic shot of the real [PRODUTO] from the reference image... landscape ratio 16:9, centered composition...\",\n      \"prompt_negativo\": \"text, typography, watermark... larvae, bugs, gross textures, altering elements\",\n      \"animacao\": \"zoom_in\",\n      \"usa_referencia\": true,\n      \"tipo_referencia\": \"produto_real\",\n      \"slug_produto\": \"[SLUG]\"\n    }\n  ]\n}"
+      }
+    ]
   }
 ];
 
@@ -360,7 +439,7 @@ export const BACKBONE_SESSIONS: SystemMessageSession[] = [
     title: 'Persona e Missão',
     isEssential: true,
     isEditable: true,
-    content: ""
+    content: "Você é um especialista em roteiros para redes sociais (TikTok/Instagram)."
   },
   {
     id: 'estetica',
@@ -374,20 +453,13 @@ export const BACKBONE_SESSIONS: SystemMessageSession[] = [
     title: 'Arte da Narração (TTS)',
     isEssential: true,
     isEditable: true,
-    content: ""
-  },
-  {
-    id: 'framework',
-    title: 'Framework de Decisão',
-    isEssential: true,
-    isEditable: true,
-    content: "INSTAGRAM: 9-12 cenas. TIKTOK: 5-7 cenas."
+    content: "Frases curtas e diretas. Sem caracteres especiais como dois pontos ou hífens."
   },
   {
     id: 'template',
     title: 'Template JSON (Sistema)',
     isEssential: true,
     isEditable: false,
-    content: "[ESTRUTURA OBRIGATÓRIA]\nSua resposta deve ser EXCLUSIVAMENTE um JSON válido. Use obrigatoriamente as chaves: numero, texto_narrado, prompt_visual e animacao. Para 'animacao', varie entre: zoom_in, zoom_out, pan_left, pan_right, pan_up, pan_down.\n{\n  \"tipo_post\": \"video\",\n  \"tema\": \"...\",\n  \"cenas\": [\n    { \"numero\": 1, \"texto_narrado\": \"...\", \"prompt_visual\": \"...\", \"animacao\": \"...\" }\n  ]\n}"
+    content: "[ESTRUTURA OBRIGATÓRIA]\nSua resposta deve ser EXCLUSIVAMENTE um JSON válido. Use obrigatoriamente as chaves listadas abaixo:\n{\n  \"tipo_post\": \"video\",\n  \"tema\": \"...\",\n  \"cenas\": [\n    {\n      \"numero\": 1,\n      \"texto_narrado\": \"...\",\n      \"prompt_visual\": \"...\",\n      \"animacao\": \"zoom_in\",\n      \"usa_referencia\": false,\n      \"tipo_referencia\": null,\n      \"slug_produto\": null\n    }\n  ]\n}"
   }
 ];

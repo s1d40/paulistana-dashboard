@@ -58,7 +58,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const { 
     progress, 
     generateSceneAssets, 
-    generateSceneImage, 
+    generateSceneImage,
+    generateSceneAudio, 
     renderScene,
     compileFinalVideo,
     isProcessing 
@@ -273,7 +274,25 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                   <Settings2 className="w-4 h-4" />
                 </button>
                 <button 
-                  onClick={() => generateSceneAssets(postId as string, currentScene, data.voice_settings)}
+                  onClick={() => {
+                    // Logic to build reference URL with smart sanitization
+                    let refUrl = undefined;
+                    if (currentScene.usa_referencia && currentScene.slug_produto) {
+                      const GCS_BASE_URL = 'https://storage.googleapis.com/cocreator_content';
+                      const folder = currentScene.tipo_referencia === 'embalagem' ? 'embalagem' : 'produtos_reais';
+                      
+                      // 1. Limpa espaços e normaliza
+                      let slug = currentScene.slug_produto.trim();
+                      
+                      // 2. Se o slug não tem extensão, adicionamos .png por padrão (fallback)
+                      // Mas se já tem (vinda do banco), mantemos a original (jpg, webp, etc)
+                      const hasExtension = /\.(png|jpg|jpeg|webp)$/i.test(slug);
+                      const fileName = hasExtension ? slug : `${slug}.png`;
+                      
+                      refUrl = `${GCS_BASE_URL}/${folder}/${fileName}`;
+                    }
+                    generateSceneAssets(postId as string, currentScene, data.voice_settings, refUrl);
+                  }}
                   disabled={isProcessing}
                   className="p-2.5 bg-zinc-800 hover:bg-zinc-700 text-amber-500 rounded-xl border border-zinc-700 transition-all disabled:opacity-50"
                   title="Gerar Assets (Imagem/Áudio)"
@@ -283,11 +302,22 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 <button 
                   onClick={() => {
                     if (!currentImage || !currentAudio) return alert("Gere os assets primeiro!");
+                    
+                    const GCS_BASE_URL = 'https://storage.googleapis.com/cocreator_content';
+                    let refUrl = undefined;
+                    if (currentScene.usa_referencia && currentScene.slug_produto) {
+                      const folder = currentScene.tipo_referencia === 'embalagem' ? 'embalagem' : 'produtos_reais';
+                      const slug = currentScene.slug_produto.split(',')[0].trim();
+                      const fileName = slug.includes('.') ? slug : `${slug}.png`;
+                      refUrl = `${GCS_BASE_URL}/${folder}/${fileName}`;
+                    }
+
                     renderScene(postId as string, currentScene, {
                       image_url: currentImage.image_url || currentImage.url_imagem_fundo || '',
                       audio_url: currentAudio.audio_url || '',
                       timestamps_url: currentAudio.timestamps || '',
-                      animacao: currentScene.animacao || 'zoom_in'
+                      animacao: currentScene.animacao || 'zoom_in',
+                      image_reference_url: refUrl
                     });
                   }}
                   disabled={isProcessing || !currentImage}
@@ -384,7 +414,17 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
             {/* Scene Details */}
             <div className="space-y-6">
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Narração</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Narração</label>
+                  <button 
+                    onClick={() => {
+                      generateSceneAudio(postId as string, currentScene, data.voice_settings);
+                    }}
+                    className="text-indigo-400 hover:text-indigo-300 text-[8px] font-black uppercase flex items-center gap-1"
+                  >
+                    <RefreshCw className={clsx("w-2.5 h-2.5", isProcessing && "animate-spin")} /> Refazer Áudio
+                  </button>
+                </div>
                 <textarea 
                   value={currentScene?.texto_narrado}
                   onChange={(e) => updateScene(selectedSceneIdx, { texto_narrado: e.target.value })}
@@ -410,22 +450,57 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                      Referência Visual
                      {currentScene?.slug_produto && <Database className="w-3 h-3 text-emerald-500 animate-pulse" />}
                    </label>
-                   <select 
-                    value={currentScene?.slug_produto || ''}
-                    onChange={(e) => updateScene(selectedSceneIdx, { 
-                      slug_produto: e.target.value,
-                      usa_referencia: !!e.target.value 
-                    })}
-                    className={clsx(
-                      "w-full bg-zinc-950 border rounded-xl p-3 text-[10px] font-bold outline-none appearance-none transition-all",
-                      currentScene?.slug_produto ? "border-emerald-500/50 text-emerald-400" : "border-zinc-800 text-zinc-400"
-                    )}
-                   >
-                     <option value="">Nenhum (Somente IA)</option>
-                     {products.map(p => (
-                       <option key={p.slug_embalagem} value={p.slug_embalagem}>{p.Produto}</option>
-                     ))}
-                   </select>
+                   
+                   {/* Normalization & Filtering Logic */}
+                   {(() => {
+                      const scriptSlugs = new Set(data.cenas.map(c => c.slug_produto?.replace(/\.(png|jpg|webp)$/, '').trim()).filter(Boolean));
+                      const filteredProducts = products.filter(p => scriptSlugs.has(p.slug_embalagem?.replace(/\.(png|jpg|webp)$/, '').trim()));
+                      const displayProducts = filteredProducts.length > 0 ? filteredProducts : products;
+
+                      return (
+                        <select 
+                          value={currentScene?.slug_produto?.replace(/\.(png|jpg|webp)$/, '').trim() || ''}
+                          onChange={(e) => updateScene(selectedSceneIdx, { 
+                            slug_produto: e.target.value,
+                            usa_referencia: !!e.target.value 
+                          })}
+                          className={clsx(
+                            "w-full bg-zinc-950 border rounded-xl p-3 text-[10px] font-bold outline-none appearance-none transition-all",
+                            currentScene?.slug_produto ? "border-emerald-500/50 text-emerald-400" : "border-zinc-800 text-zinc-400"
+                          )}
+                        >
+                          <option value="">Nenhum (Somente IA)</option>
+                          {displayProducts.map(p => (
+                            <option key={p.slug_embalagem} value={p.slug_embalagem}>{p.Produto}</option>
+                          ))}
+                        </select>
+                      );
+                   })()}
+                </div>
+
+                {/* New Reference Type Selector */}
+                <div className="space-y-2">
+                   <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Tipo de Referência</label>
+                   <div className="flex bg-zinc-950 border border-zinc-800 rounded-xl p-1">
+                      <button 
+                        onClick={() => updateScene(selectedSceneIdx, { tipo_referencia: 'produto_real' })}
+                        className={clsx(
+                          "flex-1 py-1.5 text-[8px] font-black uppercase rounded-lg transition-all",
+                          currentScene?.tipo_referencia === 'produto_real' ? "bg-zinc-800 text-emerald-400" : "text-zinc-600 hover:text-zinc-400"
+                        )}
+                      >
+                        Produto Real
+                      </button>
+                      <button 
+                        onClick={() => updateScene(selectedSceneIdx, { tipo_referencia: 'embalagem' })}
+                        className={clsx(
+                          "flex-1 py-1.5 text-[8px] font-black uppercase rounded-lg transition-all",
+                          currentScene?.tipo_referencia === 'embalagem' ? "bg-zinc-800 text-amber-400" : "text-zinc-600 hover:text-zinc-400"
+                        )}
+                      >
+                        Embalagem
+                      </button>
+                   </div>
                 </div>
               </div>
 
@@ -433,10 +508,20 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-black uppercase text-zinc-600 tracking-widest">Prompt Visual (AI)</label>
                   <button 
-                    onClick={() => generateSceneImage(postId as string, currentScene)}
+                    onClick={() => {
+                      const GCS_BASE_URL = 'https://storage.googleapis.com/cocreator_content';
+                      let refUrl = undefined;
+                      if (currentScene.usa_referencia && currentScene.slug_produto) {
+                        const folder = currentScene.tipo_referencia === 'embalagem' ? 'embalagem' : 'produtos_reais';
+                        const slug = currentScene.slug_produto.split(',')[0].trim();
+                        const fileName = slug.includes('.') ? slug : `${slug}.png`;
+                        refUrl = `${GCS_BASE_URL}/${folder}/${fileName}`;
+                      }
+                      generateSceneImage(postId as string, currentScene, refUrl);
+                    }}
                     className="text-amber-500 hover:text-amber-400 text-[8px] font-black uppercase flex items-center gap-1"
                   >
-                    <RefreshCw className={clsx("w-2.5 h-2.5", isProcessing && "animate-spin")} /> Regenerar
+                    <RefreshCw className={clsx("w-2.5 h-2.5", isProcessing && "animate-spin")} /> Refazer Imagem
                   </button>
                 </div>
                 <textarea 

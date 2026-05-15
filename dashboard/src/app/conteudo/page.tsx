@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useMemo, Suspense } from 'react';
-import { FileText, Clock, CheckCircle2, ExternalLink, RefreshCcw, Loader2, PlayCircle, Plus, Share2, Sparkles, Layout, Video, Image as ImageIcon } from 'lucide-react';
-import { ContentPost } from '@/services/supabase-service';
+import { FileText, Clock, CheckCircle2, ExternalLink, RefreshCcw, Loader2, PlayCircle, Plus, Share2, Sparkles, Layout, Video, Image as ImageIcon, Trash2 } from 'lucide-react';
+import { ContentPost, deletePostFromSupabase } from '@/services/supabase-service';
 import clsx from 'clsx';
 import PostDetailModal from './components/post-detail-modal';
 import { useQuery } from '@tanstack/react-query';
@@ -29,6 +29,7 @@ function ConteudoContent() {
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [isApproving, setIsApproving] = useState<string | null>(null);
   const [isRendering, setIsRendering] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   const { data: allPosts = [], isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['contentPosts'],
@@ -81,6 +82,22 @@ function ConteudoContent() {
       alert('Erro ao enviar solicitação de renderização.');
     } finally {
       setIsRendering(null);
+    }
+  };
+
+  const handleDelete = async (postId: string) => {
+    const confirmDelete = window.confirm('Tem certeza que deseja excluir este post e seus dados associados permanentemente?');
+    if (!confirmDelete) return;
+
+    setIsDeleting(postId);
+    try {
+      await deletePostFromSupabase(postId);
+      await refetch();
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao excluir post. Pode haver dependências no banco de dados.');
+    } finally {
+      setIsDeleting(null);
     }
   };
 
@@ -166,12 +183,8 @@ function ConteudoContent() {
         {/* Header Dusk */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
           <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-black uppercase tracking-[0.2em] w-fit">
-              <Sparkles className="w-3 h-3" />
-              Content Studio v3.0
-            </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-white uppercase italic">
-              Biblioteca de <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-orange-500 to-purple-600">Conteúdo</span>
+            <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-orange-500 to-purple-600 uppercase italic">
+              CONTENT.
             </h1>
             <p className="text-zinc-500 text-lg font-medium max-w-xl">
               Orquestre seu ecossistema digital com <span className="text-zinc-300">Inteligência Artificial</span> e estética premium.
@@ -320,21 +333,30 @@ function ConteudoContent() {
                   <div className="p-6 bg-zinc-950/50 mt-4 border-t border-zinc-800/30 flex justify-between items-center">
                     <div className="flex gap-2">
                       <button 
+                        className="p-2.5 bg-zinc-900 border border-zinc-800 hover:border-red-500/50 text-zinc-500 hover:text-red-500 rounded-xl transition-all disabled:opacity-50"
+                        onClick={() => handleDelete(post.id_post)}
+                        disabled={!!isDeleting || !!isApproving || !!isRendering}
+                        title="Excluir Post"
+                      >
+                        {isDeleting === post.id_post ? <RefreshCcw className="w-4 h-4 animate-spin text-red-500" /> : <Trash2 className="w-4 h-4" />}
+                      </button>
+
+                      <button 
                         className="p-2.5 bg-zinc-900 border border-zinc-800 hover:border-emerald-500/50 text-zinc-500 hover:text-emerald-500 rounded-xl transition-all disabled:opacity-50"
                         onClick={() => handleApprove(post.id_post)}
-                        disabled={!!isApproving || !!isRendering}
+                        disabled={!!isDeleting || !!isApproving || !!isRendering}
                         title="Aprovar Briefing"
                       >
-                        {isApproving === post.id_post ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                        {isApproving === post.id_post ? <RefreshCcw className="w-4 h-4 animate-spin text-emerald-500" /> : <CheckCircle2 className="w-4 h-4" />}
                       </button>
 
                       <button 
                         className="p-2.5 bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 text-zinc-500 hover:text-indigo-500 rounded-xl transition-all disabled:opacity-50"
                         onClick={() => handleRender(post.id_post)}
-                        disabled={!!isApproving || !!isRendering}
+                        disabled={!!isDeleting || !!isApproving || !!isRendering}
                         title="Renderizar Vídeo"
                       >
-                        {isRendering === post.id_post ? <RefreshCcw className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
+                        {isRendering === post.id_post ? <RefreshCcw className="w-4 h-4 animate-spin text-indigo-500" /> : <PlayCircle className="w-4 h-4" />}
                       </button>
                     </div>
                     

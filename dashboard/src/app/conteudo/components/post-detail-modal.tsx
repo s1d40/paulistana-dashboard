@@ -2,15 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { 
   X, Image as ImageIcon, Video, FileText, Loader2, 
   Save, 
   Hash, Layout, Smartphone, PenTool, Sparkles,
   Monitor, PlayCircle, Camera, CheckCircle2,
   Globe, Share2, Send, ExternalLink, Download, Copy, Check,
-  CalendarDays
+  CalendarDays, Bot
 } from 'lucide-react';
-import { fetchPostDetails, PostDetailsPayload, Account } from '@/services/supabase-service';
+import { fetchPostDetails, duplicatePostAsDraft, PostDetailsPayload, Account } from '@/services/supabase-service';
 import clsx from 'clsx';
 import AccountSelector from '@/components/account-selector';
 import Link from 'next/link';
@@ -24,6 +25,7 @@ interface PostDetailModalProps {
 type TabType = 'overview' | 'studio' | 'instagram' | 'youtube' | 'publish';
 
 export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailModalProps) {
+  const router = useRouter();
   const [details, setDetails] = useState<PostDetailsPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +33,7 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [isPublishing, setIsPublishing] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDuplicating, setIsDuplicating] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const copyToClipboard = (text: string, field: string) => {
@@ -133,6 +136,24 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
     }
   };
 
+  const handleDuplicateToArchitect = async () => {
+    if (!postId) return;
+    const proceed = confirm('Deseja criar um novo rascunho em branco para gerar uma nova versão com o Arquiteto? O post atual continuará salvo na sua biblioteca intacto.');
+    if (!proceed) return;
+
+    setIsDuplicating(true);
+    try {
+      const newId = await duplicatePostAsDraft(postId);
+      onClose(); // Close the modal
+      router.push(`/conteudo/chat?id_post=${newId}`);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao criar rascunho.');
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
+
   const handlePersistChanges = async () => {
     if (!postId || !details?.post) return;
     setIsSaving(true);
@@ -199,8 +220,17 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
             {details?.post && (
               <div className="flex gap-2 mr-4 border-r border-zinc-800/50 pr-4">
                 <button 
+                  onClick={handleDuplicateToArchitect}
+                  disabled={isDuplicating || isSaving || loading}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 border border-indigo-500/20"
+                  title="Voltar para o Arquiteto e gerar uma nova versão limpa"
+                >
+                  {isDuplicating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bot className="w-3.5 h-3.5" />}
+                  Novo Roteiro
+                </button>
+                <button 
                   onClick={() => handleApprove(postId)}
-                  disabled={isSaving || loading}
+                  disabled={isDuplicating || isSaving || loading}
                   className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 border border-emerald-500/20"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />

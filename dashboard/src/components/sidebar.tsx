@@ -14,7 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   KanbanSquare,
-  LogOut
+  LogOut,
+  Calendar
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useState } from 'react';
@@ -30,6 +31,7 @@ const contentNavigation = [
   { name: 'Estúdio (IA)', href: '/conteudo/novo', icon: PlayCircle },
   { name: 'Biblioteca', href: '/conteudo', icon: FileText },
   { name: 'Social Hub', href: '/conteudo/publicar', icon: Share2 },
+  { name: 'Esteira em Massa', href: '/production', icon: PlayCircle },
 ];
 
 const assetNavigation = [
@@ -41,29 +43,43 @@ const assetNavigation = [
 export default function Sidebar() {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  
+  const isAutoHideMode = pathname.startsWith('/conteudo/editor') || pathname.startsWith('/conteudo/chat');
+  const effectiveCollapsed = isAutoHideMode ? false : isCollapsed;
 
   return (
     <div className={clsx(
-      "flex flex-col border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 h-full transition-all duration-300 relative",
-      isCollapsed ? "w-20" : "w-64"
+      "flex flex-col border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 h-full transition-all duration-500",
+      isAutoHideMode 
+        ? "absolute left-0 top-0 z-[100] w-64 -translate-x-[calc(100%-10px)] hover:translate-x-0 shadow-[20px_0_50px_rgba(0,0,0,0.5)] group" 
+        : (effectiveCollapsed ? "w-20 relative" : "w-64 relative")
     )}>
-      {/* Collapse Toggle Button */}
-      <button 
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute -right-3 top-20 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-full p-1 shadow-sm z-50 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
-      >
-        {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-      </button>
+      {/* Area to catch mouse hover when hidden and show a thin visual indicator */}
+      {isAutoHideMode && (
+        <div className="absolute right-0 top-0 w-[10px] h-full translate-x-full cursor-e-resize flex items-center justify-center bg-transparent hover:bg-zinc-800/20 transition-colors">
+          <div className="w-1 h-32 rounded-full bg-zinc-800/30 group-hover:bg-transparent transition-all" />
+        </div>
+      )}
+
+      {/* Collapse Toggle Button - Hidden in Auto-Hide Mode */}
+      {!isAutoHideMode && (
+        <button 
+          onClick={() => setIsCollapsed(!effectiveCollapsed)}
+          className="absolute -right-3 top-20 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-full p-1 shadow-sm z-50 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+        >
+          {effectiveCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        </button>
+      )}
 
       <div className={clsx(
         "flex h-16 shrink-0 items-center border-b border-zinc-200 dark:border-zinc-800",
-        isCollapsed ? "justify-center" : "px-6"
+        effectiveCollapsed ? "justify-center" : "px-6"
       )}>
         <h1 className={clsx(
           "font-bold bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent transition-all",
-          isCollapsed ? "text-xl scale-125" : "text-xl"
+          effectiveCollapsed ? "text-xl scale-125" : "text-xl"
         )}>
-          {isCollapsed ? "P" : "Paulistana BI"}
+          {effectiveCollapsed ? "P" : "Paulistana BI"}
         </h1>
       </div>
       <div className="flex flex-1 flex-col overflow-y-auto px-4 py-6">

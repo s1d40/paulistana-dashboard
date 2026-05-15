@@ -13,6 +13,8 @@ import { usePresetStore, SystemMessageSession, ContentType } from '@/store/prese
 import { supabase } from '@/lib/supabase';
 import { useRouter, useSearchParams } from 'next/navigation';
 import clsx from 'clsx';
+import { fetchProducts, Product } from '@/services/google-sheets';
+import MultiProductSelector from '@/components/multi-product-selector';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -21,23 +23,32 @@ interface Message {
 
 const DEFAULT_ARCHITECT_PROMPT = `# AGENTE ARQUITETO E DIRETOR CRIATIVO (MASTER)
 
-## 1. FUNÇÃO
+## 1. FUNÇÃO E TOM DE VOZ
 Sua função é configurar a "Espinha Dorsal" de produção (Cockpit) e definir a identidade do post através de diálogo com o usuário. Você é o Diretor Criativo e o Copywriter inicial.
+- **Tom de Voz:** Seja conciso, amigável e não tão sério. Evite falar demais.
+- **Estratégia de Interação:** Faça perguntas pertinentes para instigar o usuário.
 
 ## 2. MANDATOS OBRIGATÓRIOS
-- **Identificação do Post:** Assim que o tema for definido, use a ferramenta 'Definir_Metadados_Post' para gravar o título, o tema e as captions (legenda) no banco de dados.
+- **Equilíbrio no Diálogo:** Esclareça a ideia com o usuário, mas seja objetivo. Seu objetivo é entender a demanda e definir os parâmetros em **2 ou no máximo 3 rodadas de chat**. Agrupe suas perguntas para acelerar o processo.
+- **Rede Social e Hashtags:** Lembre-se de alinhar a rede social e a estratégia de hashtags. Para poupar o tempo do usuário, você pode já sugerir a legenda e as hashtags na mesma mensagem em que faz perguntas.
+- **Identificação do Post:** Assim que tiver a visão geral (em 1 ou no máximo 2 turnos), use a ferramenta 'Definir_Metadados_Post' para gravar o título, o tema, as captions (legenda) e as hashtags.
+- **Card de Hashtags:** Você deve usar a ferramenta 'Atualizar_Card' com \`session_id: 'hashtags'\` para gravar **o texto EXATO e FINAL da legenda** e **as hashtags finais**. Não escreva diretrizes ou instruções para o roteirista neste card. Escreva o conteúdo pronto e finalizado que você acabou de criar.
 - **Dinâmica Visual:** Instrua o Roteirista a variar animações (zoom_in, zoom_out, pan, etc).
 - **Estética Definida:** Estabeleça um estilo visual claro no card de Estética.
+- **Divisão de Estratégia (Produtos vs. Geral):**
+    - **Cenário A (Com Produto):** Se o vídeo for focado em um ou mais produtos (venda direta/comparativo), você DEVE instruir o Roteirista a usar a slug do \`produto_real\` em todas as cenas iniciais e, obrigatoriamente, a slug da \`embalagem\` na cena final de CTA. A chamada final deve ser: "Não perca tempo! Garanta já o seu na Paulistana Empório".
+    - **Cenário B (Conteúdo Geral):** Se o vídeo for educativo, receitas ou dicas sem foco em produto específico, ignore as regras de slugs e deixe o Roteirista livre para criar cenas sensoriais/estéticas genéricas de alta qualidade.
 
 ## 3. FERRAMENTAS
-- **Definir_Metadados_Post**: (id_post, titulo, tema, captions). **Uso obrigatório** para batizar o conteúdo.
-- **Atualizar_Card**: (session_id, new_content). Para mudar persona, estética ou narração.
+- **Definir_Metadados_Post**: (id_post, titulo, tema, captions, hashtags). **Uso obrigatório** para batizar o conteúdo e salvar a legenda e as hashtags.
+- **Atualizar_Card**: (session_id, new_content). Para atualizar o conteúdo de QUALQUER card (inclusive cards customizados que você acabou de adicionar com Gerenciar_Sessoes_Customizadas).
 - **Ajustar_Parametros_Globais**: (model, temperature).
-- **Gerenciar_Sessoes_Customizadas**: Para adicionar campos extras.
+- **Gerenciar_Sessoes_Customizadas**: Para adicionar campos extras. (Ação obrigatória: "add" ou "remove". Nunca use "create").
 
 ## 4. PROCEDIMENTO
-- Entenda o pedido do usuário.
-- **Defina os metadados do post imediatamente.**
+- Entenda o pedido do usuário interagindo e fazendo perguntas curtas (2 ou 3 rodadas).
+- Identifique a rede social e alinhe a estratégia de hashtags.
+- **Defina os metadados do post usando a ferramenta logo em seguida.**
 - Proponha melhorias criativas e grave-as nos cards.
 - Confirme que o post está configurado e pronto para a IA Roteirista.
 `;
@@ -75,6 +86,10 @@ function ChatContent() {
   const [arcPrompt, setArcPrompt] = useState(DEFAULT_ARCHITECT_PROMPT);
   const [useRealProducts, setUseRealProducts] = useState(false);
   const [isArcSidebarOpen, setIsArcSidebarOpen] = useState(false);
+
+  // --- PRODUCTS CACHE ---
+  const [products, setProducts] = useState<Product[]>([]);
+  const [selectedProducts, setSelectedProducts] = useState<Product[]>([]);
 
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
@@ -125,6 +140,9 @@ function ChatContent() {
       const finalId = urlIdPost || sessionId;
       
       console.log('[Cocreator] 🛠️ Setting up Live Session:', finalId);
+
+      // Fetch products in background
+      fetchProducts().then(data => setProducts(data)).catch(err => console.error('Error fetching products:', err));
       
       // 1. Garantir que o registro existe no banco (Upsert)
       // Se já existe, o createDraftPreset apenas retorna o ID existente
@@ -279,6 +297,11 @@ function ChatContent() {
     setLoading(true);
 
     try {
+      // Inject product context if real products are active
+      const finalArcPrompt = selectedProducts.length > 0 && useRealProducts
+        ? `${arcPrompt}\n\n[CONTEXTO DO PRODUTO ATUAL]\nO usuário selecionou os seguintes produtos no painel:\n${selectedProducts.map(p => `- Nome: ${p.Produto} | Slug: ${p.slug_imagem_real} | Narrativa: ${p.Restricao_Narrativa || 'Nenhuma'} | Visual: ${p.Restricao_Visual || 'Nenhuma'}`).join('\n')}\n\nUtilize obrigatoriamente essas informações caso o usuário peça para gerar o post sobre este(s) produto(s). Não é necessário pedir os slugs para o usuário.`
+        : arcPrompt;
+
       // Identity Separation: Sending Architect identity + Scriptwriter State
       const response = await fetch('/api/chat/director', {
         method: 'POST',
@@ -295,7 +318,7 @@ function ChatContent() {
           
           // ARCHITECT IDENTITY OVERRIDE
           architect_model: arcModel,
-          architect_prompt: arcPrompt,
+          architect_prompt: finalArcPrompt,
           use_real_products: useRealProducts
         }),
       });
@@ -378,16 +401,50 @@ function ChatContent() {
     try {
       const systemMessage = localSessions.map(s => `### ${s.title}\n${s.content}`).join('\n\n');
       
+      let finalScriptPrompt = localPrompt;
+      if (selectedProducts.length > 0 && useRealProducts) {
+        const names = selectedProducts.map(p => p.Produto).join(' e ');
+        const slugs = selectedProducts.map(p => p.slug_imagem_real).join(', ');
+        const narrativas = selectedProducts.map(p => p.Restricao_Narrativa).filter(Boolean).join(' | ');
+        const visuais = selectedProducts.map(p => p.Restricao_Visual).filter(Boolean).join(' | ');
+        
+        finalScriptPrompt = finalScriptPrompt.replace(/\[PRODUTO\]/gi, names);
+        finalScriptPrompt = finalScriptPrompt.replace(/\[SLUG\]/gi, slugs);
+        finalScriptPrompt = finalScriptPrompt.replace(/\[NARRATIVA\]/gi, narrativas || 'Nenhuma');
+        finalScriptPrompt = finalScriptPrompt.replace(/\[VISUAL\]/gi, visuais || 'Nenhuma');
+      }
+
+      let imageUrls: string[] = [];
+      let packagingUrls: string[] = [];
+      
+      if (useRealProducts && selectedProducts.length > 0) {
+        const GCS_BASE_URL = 'https://storage.googleapis.com/cocreator_content';
+        
+        imageUrls = selectedProducts.map(p => {
+          if (!p.slug_imagem_real) return '';
+          const fileName = p.slug_imagem_real.includes('.') ? p.slug_imagem_real : `${p.slug_imagem_real}.png`;
+          return `${GCS_BASE_URL}/produtos_reais/${fileName}`;
+        }).filter(Boolean);
+
+        packagingUrls = selectedProducts.map(p => {
+          if (!p.slug_embalagem) return '';
+          const fileName = p.slug_embalagem.includes('.') ? p.slug_embalagem : `${p.slug_embalagem}.png`;
+          return `${GCS_BASE_URL}/embalagem/${fileName}`;
+        }).filter(Boolean);
+      }
+
       const response = await fetch('/api/chat/roteirista', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_prompt: messages[messages.length - 1]?.content || 'Gere o vídeo com base no cockpit.',
           system_message: systemMessage,
+          image_url: imageUrls.length > 0 ? (imageUrls.length === 1 ? imageUrls[0] : imageUrls) : undefined,
+          image_url_packaging: packagingUrls.length > 0 ? (packagingUrls.length === 1 ? packagingUrls[0] : packagingUrls) : undefined,
           config: {
             model: localModel,
             temperature: localTemp,
-            prompt: localPrompt
+            prompt: finalScriptPrompt
           }
         }),
       });
@@ -629,7 +686,7 @@ function ChatContent() {
 
       <div className="flex-1 flex overflow-hidden relative">
         <aside className={clsx(
-          "bg-zinc-900/30 border-r border-zinc-800/50 flex flex-col gap-6 overflow-y-auto custom-scrollbar scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent shrink-0 transition-all duration-300 ease-in-out relative z-20",
+          "order-last bg-zinc-900/30 border-l border-zinc-800/50 flex flex-col gap-6 overflow-y-auto custom-scrollbar scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent shrink-0 transition-all duration-300 ease-in-out relative z-20",
           isArcSidebarOpen ? "w-80 p-6 opacity-100" : "w-0 p-0 opacity-0 pointer-events-none"
         )}>
           <div className="space-y-5">
@@ -676,16 +733,23 @@ function ChatContent() {
                   )} />
                 </div>
               </label>
+              {useRealProducts && (
+                <MultiProductSelector 
+                  products={products} 
+                  selectedProducts={selectedProducts} 
+                  onChange={setSelectedProducts} 
+                />
+              )}
             </div>
           </div>
           <div className="flex-1 flex flex-col gap-2 min-h-0">
-            <label className="text-[8px] font-black text-zinc-500 uppercase tracking-tighter flex items-center justify-between">
+            <label className="text-[8px] font-black text-zinc-500 uppercase tracking-tighter flex items-center justify-between shrink-0">
               Instruções de Identidade
               <Terminal className="w-3 h-3 text-indigo-500/40" />
             </label>
-            <textarea value={arcPrompt} onChange={(e) => setArcPrompt(e.target.value)} className="w-full flex-1 bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-[10px] font-mono leading-relaxed text-zinc-400 outline-none resize-none focus:ring-1 focus:ring-indigo-500 transition-all shadow-inner" placeholder="Architect identity..." />
+            <textarea value={arcPrompt} onChange={(e) => setArcPrompt(e.target.value)} className="w-full flex-1 min-h-[120px] bg-zinc-950 border border-zinc-800 rounded-2xl p-4 text-[10px] font-mono leading-relaxed text-zinc-400 outline-none resize-none focus:ring-1 focus:ring-indigo-500 transition-all shadow-inner" placeholder="Architect identity..." />
           </div>
-          <div className="p-3 bg-indigo-500/5 rounded-xl border border-indigo-500/10">
+          <div className="p-3 bg-indigo-500/5 rounded-xl border border-indigo-500/10 shrink-0">
              <p className="text-[9px] text-indigo-300 leading-relaxed font-medium">Estas instruções definem o comportamento do Agente na manipulação dos parâmetros do Cockpit.</p>
           </div>
         </aside>
@@ -693,8 +757,8 @@ function ChatContent() {
         <button
           onClick={() => setIsArcSidebarOpen(!isArcSidebarOpen)}
           className={clsx(
-            "absolute left-0 top-1/2 -translate-y-1/2 z-30 p-1.5 bg-zinc-900 border border-zinc-800 rounded-r-xl text-indigo-400 hover:bg-zinc-800 transition-all shadow-2xl",
-            isArcSidebarOpen ? "translate-x-80" : "translate-x-0"
+            "absolute right-0 top-1/2 -translate-y-1/2 z-30 p-1.5 bg-zinc-900 border border-zinc-800 rounded-l-xl text-indigo-400 hover:bg-zinc-800 transition-all shadow-2xl",
+            isArcSidebarOpen ? "-translate-x-80" : "translate-x-0"
           )}
           title={isArcSidebarOpen ? "Esconder DNA" : "Ajustar DNA do Arquiteto"}
         >
