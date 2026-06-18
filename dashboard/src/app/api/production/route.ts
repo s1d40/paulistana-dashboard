@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
     // --- ACTION: INIT_POST (Single Post Initialization) ---
     if (action === 'init_post') {
-      const { id_post, tema_post, titulo_post, roteiro_gerado, status, id_conta } = body;
+      const { id_post, tema_post, titulo_post, roteiro_gerado, status, id_conta, production_list_id, captions, hashtags } = body;
       
       if (!id_post) {
         return NextResponse.json({ error: 'id_post ausente.' }, { status: 400 });
@@ -43,11 +43,17 @@ export async function POST(request: Request) {
           titulo_post,
           roteiro_gerado,
           id_conta,
+          captions,
+          hashtags,
           status: status || 'Aguardando Revisão',
           images_status: 'Pendente',
           audio_status: 'Pendente',
           video_status: 'Pendente'
         };
+
+        if (production_list_id) {
+          postToUpsert.production_list_id = production_list_id;
+        }
 
         // Só definir data_criacao se for um post novo (difícil saber no upsert sem ler antes, 
         // mas podemos omitir se o banco tiver um default, ou ler antes)
@@ -85,7 +91,7 @@ export async function POST(request: Request) {
 
       const webhookUrl = action === 'mass_production' ? N8N_PRODUCTION_WEBHOOK : N8N_SINGLE_PRODUCTION_WEBHOOK;
 
-      const response = await fetch(webhookUrl, {
+      fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -105,21 +111,9 @@ export async function POST(request: Request) {
           items: items || [],
           timestamp: new Date().toISOString(),
         }),
-      });
+      }).catch(err => console.error('[Mass Production API] Background fetch error:', err));
 
-      if (!response.ok) {
-        throw new Error(`Erro no n8n: ${response.statusText}`);
-      }
-
-      const textData = await response.text();
-      let data;
-      try {
-        data = textData ? JSON.parse(textData) : { message: 'Produção iniciada com sucesso!' };
-      } catch {
-        data = { message: textData || 'Produção iniciada com sucesso!' };
-      }
-
-      return NextResponse.json({ success: true, data });
+      return NextResponse.json({ success: true, data: { message: 'Produção iniciada em segundo plano com sucesso!' } });
     }
 
     return NextResponse.json({ error: 'Ação inválida.' }, { status: 400 });

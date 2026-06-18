@@ -24,33 +24,23 @@ interface Message {
 const DEFAULT_ARCHITECT_PROMPT = `# AGENTE ARQUITETO E DIRETOR CRIATIVO (MASTER)
 
 ## 1. FUNÇÃO E TOM DE VOZ
-Sua função é configurar a "Espinha Dorsal" de produção (Cockpit) e definir a identidade do post através de diálogo com o usuário. Você é o Diretor Criativo e o Copywriter inicial.
-- **Tom de Voz:** Seja conciso, amigável e não tão sério. Evite falar demais.
-- **Estratégia de Interação:** Faça perguntas pertinentes para instigar o usuário.
+Sua função é configurar o Cockpit de produção. Você é o Diretor Criativo.
+- **Tom de Voz:** Conciso, amigável e focado em execução técnica.
+- **Tool-First Policy:** SEMPRE execute as ferramentas ANTES de responder ao usuário.
 
-## 2. MANDATOS OBRIGATÓRIOS
-- **Equilíbrio no Diálogo:** Esclareça a ideia com o usuário, mas seja objetivo. Seu objetivo é entender a demanda e definir os parâmetros em **2 ou no máximo 3 rodadas de chat**. Agrupe suas perguntas para acelerar o processo.
-- **Rede Social e Hashtags:** Lembre-se de alinhar a rede social e a estratégia de hashtags. Para poupar o tempo do usuário, você pode já sugerir a legenda e as hashtags na mesma mensagem em que faz perguntas.
-- **Identificação do Post:** Assim que tiver a visão geral (em 1 ou no máximo 2 turnos), use a ferramenta 'Definir_Metadados_Post' para gravar o título, o tema, as captions (legenda) e as hashtags.
-- **Card de Hashtags:** Você deve usar a ferramenta 'Atualizar_Card' com \`session_id: 'hashtags'\` para gravar **o texto EXATO e FINAL da legenda** e **as hashtags finais**. Não escreva diretrizes ou instruções para o roteirista neste card. Escreva o conteúdo pronto e finalizado que você acabou de criar.
-- **Dinâmica Visual:** Instrua o Roteirista a variar animações (zoom_in, zoom_out, pan, etc).
-- **Estética Definida:** Estabeleça um estilo visual claro no card de Estética.
-- **Divisão de Estratégia (Produtos vs. Geral):**
-    - **Cenário A (Com Produto):** Se o vídeo for focado em um ou mais produtos (venda direta/comparativo), você DEVE instruir o Roteirista a usar a slug do \`produto_real\` em todas as cenas iniciais e, obrigatoriamente, a slug da \`embalagem\` na cena final de CTA. A chamada final deve ser: "Não perca tempo! Garanta já o seu na Paulistana Empório".
-    - **Cenário B (Conteúdo Geral):** Se o vídeo for educativo, receitas ou dicas sem foco em produto específico, ignore as regras de slugs e deixe o Roteirista livre para criar cenas sensoriais/estéticas genéricas de alta qualidade.
+## 2. PROCEDIMENTO OBRIGATÓRIO (FLUXO LÓGICO)
+Para garantir que o Cockpit seja atualizado corretamente, siga estritamente esta ordem:
+1. **Para itens NOVOS (ex: "adicione uma CTA", "crie uma restrição"):**
+   - 1º: Use 'Gerenciar_Sessoes_Customizadas' com a ação 'create'.
+   - 2º: Use 'Atualizar_Card' para inserir o conteúdo no card recém-criado.
+2. **Para itens que JÁ EXISTEM na Bancada:** Use 'Atualizar_Card' diretamente.
+3. **Metadados:** Use 'Definir_Metadados_Post' para salvar título, tema, legenda e hashtags.
 
 ## 3. FERRAMENTAS
-- **Definir_Metadados_Post**: (id_post, titulo, tema, captions, hashtags). **Uso obrigatório** para batizar o conteúdo e salvar a legenda e as hashtags.
-- **Atualizar_Card**: (session_id, new_content). Para atualizar o conteúdo de QUALQUER card (inclusive cards customizados que você acabou de adicionar com Gerenciar_Sessoes_Customizadas).
+- **Definir_Metadados_Post**: Grava título, tema, captions e hashtags.
+- **Gerenciar_Sessoes_Customizadas**: Para adicionar ou remover cards. (Ação obrigatória: "create" ou "remove").
+- **Atualizar_Card**: Para preencher ou editar o conteúdo de QUALQUER card.
 - **Ajustar_Parametros_Globais**: (model, temperature).
-- **Gerenciar_Sessoes_Customizadas**: Para adicionar campos extras. (Ação obrigatória: "add" ou "remove". Nunca use "create").
-
-## 4. PROCEDIMENTO
-- Entenda o pedido do usuário interagindo e fazendo perguntas curtas (2 ou 3 rodadas).
-- Identifique a rede social e alinhe a estratégia de hashtags.
-- **Defina os metadados do post usando a ferramenta logo em seguida.**
-- Proponha melhorias criativas e grave-as nos cards.
-- Confirme que o post está configurado e pronto para a IA Roteirista.
 `;
 
 function ChatContent() {
@@ -60,7 +50,7 @@ function ChatContent() {
   const idPost = searchParams.get('id_post');
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  const { initializePresets, createDraftPreset } = usePresetStore();
+  const { initializePresets, createDraftPreset, presets } = usePresetStore();
   
   const [mounted, setMounted] = useState(false);
   const [sessionId] = useState(() => idPost || (typeof crypto !== 'undefined' ? crypto.randomUUID() : 'id-' + Date.now()));
@@ -71,6 +61,12 @@ function ChatContent() {
   const [loading, setLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState<string | null>(null);
+
+  // --- SAVE PRESET MODAL ---
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [newPresetName, setNewPresetName] = useState('');
+  const [newPresetDesc, setNewPresetDesc] = useState('');
+  const [isSavingPreset, setIsSavingPreset] = useState(false);
 
   // --- POST METADATA ---
   const [postTitle, setPostTitle] = useState<string>('');
@@ -141,6 +137,21 @@ function ChatContent() {
       
       console.log('[Cocreator] 🛠️ Setting up Live Session:', finalId);
 
+      // Pilar 3: Sinergia Mercado Livre -> Arquiteto
+      const mlCompetitorsStr = localStorage.getItem('ml_competitors');
+      if (mlCompetitorsStr) {
+        try {
+          const mlComps = JSON.parse(mlCompetitorsStr);
+          if (mlComps && mlComps.length > 0) {
+            const promptStr = `[SINERGIA DE MERCADO]\nAnalise esses ${mlComps.length} concorrentes de peso do Mercado Livre. Crie um roteiro de vídeo estratégico que ataque as fraquezas deles e mostre que o nosso produto tem o melhor custo-benefício.\n\nCONCORRENTES ESPIONADOS:\n${mlComps.map((c: any) => `- Título: ${c.title}\n- Preço: R$ ${c.price}\n- Marca: ${c.brand || 'Genérico'}\n- Link: ${c.permalink}`).join('\n\n')}`;
+            setInput(promptStr);
+            localStorage.removeItem('ml_competitors');
+          }
+        } catch (e) {
+          console.error('Failed to parse ml_competitors', e);
+        }
+      }
+
       // Fetch products in background
       fetchProducts().then(data => setProducts(data)).catch(err => console.error('Error fetching products:', err));
       
@@ -158,6 +169,14 @@ function ChatContent() {
         setLocalPrompt((config.prompt as string) || '');
         setLocalModel((config.model as string) || 'gpt-5.4');
         setLocalTemp((config.temperature as number) ?? 0.7);
+      } else {
+        const draftPreset = usePresetStore.getState().presets.find(p => p.id === (confirmedId || finalId));
+        if (draftPreset) {
+          setLocalSessions(draftPreset.sessions);
+          setLocalPrompt(draftPreset.prompt);
+          setLocalModel(draftPreset.model);
+          setLocalTemp(draftPreset.temperature);
+        }
       }
 
       // 2.1 Buscar metadados iniciais do post
@@ -283,6 +302,14 @@ function ChatContent() {
       setLocalPrompt((config.prompt as string) || '');
       setLocalModel((config.model as string) || 'gpt-5.4');
       setLocalTemp((config.temperature as number) ?? 0.7);
+    } else {
+      const draftPreset = usePresetStore.getState().presets.find(p => p.id === activePresetId);
+      if (draftPreset) {
+        setLocalSessions(draftPreset.sessions);
+        setLocalPrompt(draftPreset.prompt);
+        setLocalModel(draftPreset.model);
+        setLocalTemp(draftPreset.temperature);
+      }
     }
   };
 
@@ -361,10 +388,12 @@ function ChatContent() {
         .eq('id', activePresetId)
         .single();
 
-      const updatedSessions = (currentData?.sessions || []).map((s: SystemMessageSession) => 
+      const updatedSessions = (currentData?.sessions || localSessions || []).map((s: SystemMessageSession) => 
         s.id === sessionId ? { ...s, content: session.content } : s
       );
       
+      // Always push to DB so n8n architect can read the latest session state
+      usePresetStore.getState().updatePreset(activePresetId, { sessions: updatedSessions });
       await updatePresetInSupabase(activePresetId, { sessions: updatedSessions });
       await handleManualRefresh();
     } catch (err) {
@@ -376,27 +405,116 @@ function ChatContent() {
   };
 
   const handleSaveSettingsToDb = async () => {
-   if (!activePresetId) return;
-   setIsSaving('settings');
-   try {
-     await updatePresetInSupabase(activePresetId, {
-       config: {
-         prompt: localPrompt,
-         model: localModel,
-         temperature: localTemp
-       }
-     });
-     isSettingsModified.current = false;
-     await handleManualRefresh();
-   } catch (err) {
-     console.error(err);
-   } finally {
-     setIsSaving(null);
-   }
+    if (!activePresetId) return;
+    setIsSaving('settings');
+    try {
+      const newConfig = {
+        prompt: localPrompt,
+        model: localModel,
+        temperature: localTemp
+      };
+      
+      // Update local memory
+      usePresetStore.getState().updatePreset(activePresetId, { 
+        prompt: localPrompt,
+        model: localModel,
+        temperature: localTemp,
+        config: newConfig 
+      });
+      
+      // Always hit DB so n8n architect sees the latest state
+      await updatePresetInSupabase(activePresetId, { config: newConfig });
+      isSettingsModified.current = false;
+      await handleManualRefresh();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(null);
+    }
+  };
+
+  const handleSaveAsNewPreset = async () => {
+    if (!newPresetName.trim()) {
+      alert('Por favor, insira um nome para o preset.');
+      return;
+    }
+    if (!activePresetId) {
+      alert('Erro: ID do preset não encontrado.');
+      return;
+    }
+    setIsSavingPreset(true);
+    try {
+      const { error } = await supabase
+        .from('content_presets')
+        .upsert({
+          id: activePresetId,
+          name: newPresetName,
+          description: newPresetDesc || 'Preset gerado via Arquiteto',
+          track: track, // Ensures the track is saved
+          sessions: localSessions,
+          config: {
+            prompt: localPrompt,
+            model: localModel,
+            temperature: localTemp,
+            is_draft: false
+          }
+        });
+
+      if (error) throw error;
+      
+      await usePresetStore.getState().initializePresets();
+      
+      alert('Preset salvo com sucesso!');
+      setIsSaveModalOpen(false);
+      setNewPresetName('');
+      setNewPresetDesc('');
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar preset.');
+    } finally {
+      setIsSavingPreset(false);
+    }
+  };
+
+  const handleApplyPreset = async (presetId: string) => {
+    if (!presetId) return;
+    const selected = presets.find(p => p.id === presetId);
+    if (!selected) return;
+
+    if (confirm(`Deseja substituir as configurações e sessões atuais pelo preset "${selected.name}"?`)) {
+      setLocalSessions(selected.sessions);
+      setLocalPrompt(selected.prompt);
+      setLocalModel(selected.model);
+      setLocalTemp(selected.temperature);
+      isSettingsModified.current = true;
+      
+      setIsSaving('settings');
+      try {
+        const newConfig = {
+          prompt: selected.prompt,
+          model: selected.model,
+          temperature: selected.temperature
+        };
+        usePresetStore.getState().updatePreset(activePresetId, { 
+          prompt: selected.prompt,
+          model: selected.model,
+          temperature: selected.temperature,
+          sessions: selected.sessions,
+          config: newConfig 
+        });
+        
+        // Also update Supabase so n8n sees the applied preset
+        await updatePresetInSupabase(activePresetId, { sessions: selected.sessions, config: newConfig });
+        await handleManualRefresh();
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsSaving(null);
+      }
+    }
   };
 
   const handleFinalizeProduction = async () => {
-    if (!activePresetId) return;
     setIsGenerating(true);
     try {
       const systemMessage = localSessions.map(s => `### ${s.title}\n${s.content}`).join('\n\n');
@@ -452,18 +570,58 @@ function ChatContent() {
       if (!response.ok) throw new Error('Erro na geração');
       const { script: generatedScript } = await response.json();
       
-      // Reutiliza o idPost (Sessão) se existir, senão gera um novo
-      const finalId = idPost || (typeof crypto !== 'undefined' ? crypto.randomUUID() : Date.now().toString());
+      let parsedScript = generatedScript;
+      if (typeof generatedScript === 'string') {
+        try { parsedScript = JSON.parse(generatedScript); } catch (e) {}
+      }
+
+      // Validação agressiva de Erros para evitar carregar o estúdio infinitamente
+      if (!parsedScript) {
+        throw new Error('A IA não retornou nenhum roteiro válido.');
+      }
       
+      if (typeof parsedScript === 'string' && (parsedScript.toLowerCase().includes('error') || parsedScript.toLowerCase().includes('erro') || parsedScript.toLowerCase().includes('api key'))) {
+        throw new Error(`Erro retornado pela IA: ${parsedScript}`);
+      }
+      
+      if (typeof parsedScript === 'object' && (parsedScript.error || parsedScript.message?.toLowerCase().includes('error'))) {
+        throw new Error(`Erro na IA: ${parsedScript.error || parsedScript.message}`);
+      }
+      
+      if (typeof parsedScript === 'object' && !parsedScript.cenas && !parsedScript.slides && !parsedScript.secoes) {
+        throw new Error('O roteiro gerado não possui a estrutura correta (cenas, slides ou seções). Verifique o modelo ou N8N.');
+      }
+      
+      // Reutiliza o idPost (Sessão) ou o activePresetId para garantir que o Post tenha o mesmo ID do Preset salvo
+      const finalId = idPost || activePresetId || (typeof crypto !== 'undefined' ? crypto.randomUUID() : Date.now().toString());
+      
+      // Atualiza explicitamente o preset no DB para garantir que as últimas modificações sejam salvas com este ID
+      const currentPreset = usePresetStore.getState().presets.find(p => p.id === activePresetId);
+      if (currentPreset && finalId) {
+        await supabase.from('content_presets').upsert({
+          id: finalId,
+          name: postTitle ? `[Auto] ${postTitle}` : `[Auto] ${parsedScript?.titulo_otimizado || 'Sem Título'}`,
+          description: currentPreset.description || 'Preset vinculado automaticamente ao post.',
+          track: currentPreset.type || track,
+          sessions: localSessions,
+          config: {
+            model: localModel,
+            temperature: localTemp,
+            prompt: finalScriptPrompt,
+            is_draft: true
+          }
+        }, { onConflict: 'id' });
+      }
+
       const prodRes = await fetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           action: 'init_post',
           id_post: finalId,
-          tema_post: generatedScript.tema || 'Novo Vídeo',
-          titulo_post: postTitle || generatedScript.titulo_otimizado || 'Sem Título',
-          roteiro_gerado: JSON.stringify(generatedScript),
+          tema_post: parsedScript?.tema || 'Novo Vídeo',
+          titulo_post: postTitle || parsedScript?.titulo_otimizado || 'Sem Título',
+          roteiro_gerado: typeof parsedScript === 'string' ? parsedScript : JSON.stringify(parsedScript),
           status: 'Aguardando Revisão',
           id_conta: (window as Window & { _current_id_conta?: string })._current_id_conta || 'b3f9c2d1-7e84-4a56-9d2b-1f8e3c6a4b90' 
         }),
@@ -477,7 +635,8 @@ function ChatContent() {
       router.push(`/conteudo/editor/${finalId}`);
     } catch (err) {
       console.error(err);
-      alert('Erro ao finalizar produção.');
+      const msg = err instanceof Error ? err.message : 'Erro ao finalizar produção.';
+      alert(msg);
     } finally {
       setIsGenerating(false);
     }
@@ -519,10 +678,26 @@ function ChatContent() {
           </div>
         </div>
         <div className="flex items-center gap-4">
+          <select 
+            onChange={(e) => {
+              handleApplyPreset(e.target.value);
+              e.target.value = "";
+            }} 
+            className="w-64 bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs font-bold text-indigo-300 outline-none focus:ring-1 focus:ring-indigo-500 appearance-none cursor-pointer truncate"
+            defaultValue=""
+          >
+            <option value="" disabled>Carregar Preset...</option>
+            {presets.filter(p => !(p as any).config?.is_draft && p.id !== activePresetId).map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
           <button onClick={resetChat} className="p-2 hover:bg-zinc-800 text-zinc-500 hover:text-red-400 rounded-lg transition-all" title="Limpar Chat"><RotateCcw className="w-5 h-5" /></button>
           <button onClick={handleManualRefresh} className="p-2 hover:bg-zinc-800 text-zinc-500 hover:text-indigo-400 rounded-lg transition-all" title="Forçar Re-Sincronia"><RefreshCcw className="w-5 h-5" /></button>
+          <button onClick={() => setIsSaveModalOpen(true)} className="flex items-center gap-2 px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-500/20 transition-all active:scale-95">
+            <Save className="w-4 h-4 fill-current" /> Salvar Preset
+          </button>
           
-          <button onClick={() => handleFinalizeProduction()} disabled={isGenerating || messages.length === 0} className="flex items-center gap-2 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-500/20 transition-all active:scale-95">
+          <button onClick={() => handleFinalizeProduction()} disabled={isGenerating} className="flex items-center gap-2 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-500/20 transition-all active:scale-95">
             {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />} Gerar Roteiro
           </button>
         </div>
@@ -806,6 +981,61 @@ function ChatContent() {
           </footer>
         </div>
       </div>
+
+      {/* Save Preset Modal */}
+      {isSaveModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-[400px] shadow-2xl p-6 space-y-6">
+            <div>
+              <h3 className="text-lg font-black text-white uppercase tracking-tighter flex items-center gap-2">
+                <Save className="w-5 h-5 text-emerald-500" /> Salvar Preset
+              </h3>
+              <p className="text-xs text-zinc-400 mt-1">Este DNA criativo ficará disponível para a produção em massa.</p>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Nome do Preset</label>
+                <input 
+                  type="text" 
+                  value={newPresetName}
+                  onChange={(e) => setNewPresetName(e.target.value)}
+                  placeholder="Ex: Viral TikTok 15s"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Descrição (Opcional)</label>
+                <textarea 
+                  value={newPresetDesc}
+                  onChange={(e) => setNewPresetDesc(e.target.value)}
+                  placeholder="Focado em ganchos rápidos e CTA direta..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-sm text-zinc-300 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none h-24"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button 
+                onClick={() => setIsSaveModalOpen(false)}
+                disabled={isSavingPreset}
+                className="flex-1 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleSaveAsNewPreset}
+                disabled={isSavingPreset || !newPresetName.trim()}
+                className="flex-[2] py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50"
+              >
+                {isSavingPreset ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />} 
+                Salvar Definitivo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

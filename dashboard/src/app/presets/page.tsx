@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from 'react';
 import { usePresetStore, ContentType, SystemMessageSession, Preset } from '@/store/presetStore';
-import { Plus, Save, Trash2, CheckCircle2, ArrowLeft, Lock, Unlock, Type, FileJson, Video, Layout, FileText, RefreshCcw, Copy } from 'lucide-react';
+import { Plus, Save, Trash2, CheckCircle2, ArrowLeft, Lock, Unlock, Type, FileJson, Video, Layout, FileText, RefreshCcw, Copy, Star } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import clsx from 'clsx';
@@ -23,6 +23,12 @@ function PresetsContent() {
   }
 
   const editingPreset = presets.find((p) => p.id === editingId) || null;
+
+  const sortedPresets = [...presets].sort((a, b) => {
+    if (a.isFavorite && !b.isFavorite) return -1;
+    if (!a.isFavorite && b.isFavorite) return 1;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
 
   const handleCreateNew = () => {
     addPreset({
@@ -189,7 +195,7 @@ function PresetsContent() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {presets.map((preset) => (
+                {sortedPresets.map((preset) => (
                   <div
                     key={preset.id}
                     onClick={() => {
@@ -204,7 +210,7 @@ function PresetsContent() {
                     )}
                   >
                     <div className="flex items-start justify-between">
-                      <div className="space-y-1">
+                      <div className="space-y-1 w-full pr-2">
                         <div className="flex items-center gap-2">
                           <span className={clsx(
                             "p-1 rounded text-zinc-500",
@@ -212,7 +218,7 @@ function PresetsContent() {
                           )}>
                             {getIconForType(preset.type || 'general')}
                           </span>
-                          <h3 className="font-bold text-sm text-zinc-900 dark:text-white flex items-center gap-2">
+                          <h3 className="font-bold text-sm text-zinc-900 dark:text-white flex items-center gap-2 line-clamp-1">
                             {preset.name}
                           </h3>
                         </div>
@@ -225,6 +231,24 @@ function PresetsContent() {
                           </span>
                         )}
                       </div>
+                      
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          updatePreset(preset.id, { isFavorite: !preset.isFavorite });
+                        }}
+                        className="p-1.5 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors shrink-0"
+                        title={preset.isFavorite ? "Desfavoritar" : "Favoritar"}
+                      >
+                        <Star 
+                          className={clsx(
+                            "w-4 h-4 transition-colors",
+                            preset.isFavorite 
+                              ? "fill-yellow-400 text-yellow-500 drop-shadow-sm" 
+                              : "text-zinc-300 dark:text-zinc-600 hover:text-yellow-400"
+                          )} 
+                        />
+                      </button>
                     </div>
                   </div>
                 ))}

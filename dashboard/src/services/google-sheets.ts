@@ -34,6 +34,7 @@ export interface ContentPost {
 
 export interface PostImage {
   id_post: string;
+  id_cena?: string;
   image_url?: string;
   prompt_utilizado?: string;
   data_geracao?: string;
@@ -46,6 +47,7 @@ export interface PostImage {
 export interface PostAudio {
   id_audio: string;
   id_post: string;
+  id_cena?: string;
   audio_url?: string;
   texto_narrado?: string;
   data_geracao?: string;
@@ -61,7 +63,7 @@ export interface PostVideo {
 }
 
 export interface PostVideoCena {
-  id: string;
+  id: string; // Will match id_cena
   id_post: string;
   numero_cena: number;
   video_url: string;

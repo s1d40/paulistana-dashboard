@@ -9,16 +9,8 @@ import { Suspense } from 'react';
 
 function LoginContent() {
   const [loading, setLoading] = useState(false);
-  const [isDev, setIsDev] = useState(false);
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
-
-  useEffect(() => {
-    // Detecta se está em localhost/dev
-    if (window.location.hostname === 'localhost') {
-      setIsDev(true);
-    }
-  }, []);
 
   const handleLogin = async () => {
     setLoading(true);
@@ -27,16 +19,6 @@ function LoginContent() {
     } catch (err) {
       console.error('Login error:', err);
       alert('Erro ao tentar logar com o Google.');
-      setLoading(false);
-    }
-  };
-
-  const handleDevLogin = async () => {
-    setLoading(true);
-    try {
-      await signIn('dev-login', { callbackUrl: '/' });
-    } catch (err) {
-      console.error('Dev login error:', err);
       setLoading(false);
     }
   };
@@ -88,17 +70,6 @@ function LoginContent() {
           )}
           <span>Entrar com o Google</span>
         </button>
-
-        {isDev && (
-          <button
-            onClick={handleDevLogin}
-            disabled={loading}
-            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-2xl font-black uppercase tracking-widest border border-zinc-700 transition-all active:scale-95 disabled:opacity-50"
-          >
-            <Terminal className="w-5 h-5" />
-            <span>Entrar em modo Dev</span>
-          </button>
-        )}
       </div>
     </div>
   );

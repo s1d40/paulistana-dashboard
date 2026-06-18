@@ -1,7 +1,7 @@
 'use client';
 
 import { usePresetStore, ContentType, Preset } from '@/store/presetStore';
-import { CheckCircle2, ChevronDown, FileJson, Video, Layout, FileText } from 'lucide-react';
+import { CheckCircle2, ChevronDown, FileJson, Video, Layout, FileText, Star } from 'lucide-react';
 import { useState } from 'react';
 import clsx from 'clsx';
 
@@ -14,6 +14,12 @@ export default function PresetSelector({ onSelect }: PresetSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   const activePreset = presets.find(p => p.id === activePresetId);
+
+  const sortedPresets = [...presets].sort((a, b) => {
+    if (a.isFavorite && !b.isFavorite) return -1;
+    if (!a.isFavorite && b.isFavorite) return 1;
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
 
   const getIconForType = (type: ContentType) => {
     switch (type) {
@@ -60,7 +66,7 @@ export default function PresetSelector({ onSelect }: PresetSelectorProps) {
                   Nenhum preset encontrado.
                 </div>
               ) : (
-                presets.map((preset) => (
+                sortedPresets.map((preset) => (
                   <button
                     key={preset.id}
                     onClick={() => {
@@ -83,7 +89,10 @@ export default function PresetSelector({ onSelect }: PresetSelectorProps) {
                         {getIconForType(preset.type || 'general')}
                       </span>
                       <div className="text-left">
-                        <p className="text-xs font-bold">{preset.name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold">{preset.name}</p>
+                          {preset.isFavorite && <Star className="w-3 h-3 fill-yellow-400 text-yellow-500" />}
+                        </div>
                         <p className="text-[9px] opacity-70">{preset.description.substring(0, 40)}...</p>
                       </div>
                     </div>

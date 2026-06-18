@@ -56,7 +56,16 @@ A página `/conteudo/editor/[id]` foi significativamente aprimorada para permiti
 ---
 
 ### Próximos Passos (Sugestões Futuras)
-Com essa fundação concluída, o projeto está altamente expansível. Possíveis passos futuros incluem:
+Com essa fundação concluída, ouração está altamente expansível. Possíveis passos futuros incluem:
 - Autenticação e proteção de rotas (Login para acessar o painel).
 - Botões de "Aprovar Post" e "Rejeitar", disparando requests de volta para o Google Sheets/n8n para alterar o status remotamente.
 - Ampliação das páginas de relatório específicas (Aquisição, Engajamento, Ecommerce) com métricas profundas isoladas.
+
+---
+
+## 6. Correções e Estabilidade (25 de Maio)
+Hoje realizamos uma bateria intensa de correções para robustecer a comunicação entre o Dashboard e o n8n:
+- **Ordenação Definitiva do Master Video:** Corrigido o bug onde o `video-studio.tsx` puxava a versão mais antiga do vídeo mestre. Implementamos ordenação reversa por `data_compilacao` para garantir a exibição instantânea da renderização mais recente.
+- **Auto-Limpador de Markdown:** Implementada a função `sanitizeJsonString` direto na API Next.js (`route.ts`). O Frontend agora é imune a alucinações de formatação do Agente (como crases e blocos ` ```json `), extraindo o JSON válido silenciosamente antes de quebrar.
+- **Desbloqueio de Geração Instantânea:** O botão "Gerar Roteiro" agora permite solicitações de "Cold Start". Removemos as travas rígidas de `activePresetId` nulo e `messages.length === 0`, viabilizando gerações rápidas unicamente via Presets sem obrigar interações de chat prévias.
+- **Tratamento de Alucinações de Slugs:** Investigado e isolado o problema de "produtos fantasmas". A UI agora reflete precisamente a desassociação entre slugs falsos inventados pelo LLM (ex: `cebola-crispy`) e a base real do Google Cloud (`cebola_crispy_crocante`).

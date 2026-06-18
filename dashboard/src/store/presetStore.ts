@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { fetchContentPresets } from '@/services/supabase-service';
+import { fetchContentPresets, fetchPresetById } from '@/services/supabase-service';
 import { supabase } from '@/lib/supabase';
 
 export interface RenderPayload {
@@ -30,8 +30,13 @@ export interface Preset {
   prompt: string;
   model: string;
   temperature: number;
+  isFavorite?: boolean;
   createdAt: string;
   updatedAt: string;
+  config?: {
+    is_draft?: boolean;
+    [key: string]: any;
+  };
 }
 
 interface PresetState {
@@ -58,53 +63,79 @@ export const usePresetStore = create<PresetState>()(
       createDraftPreset: async (track, explicitId) => {
         const id = explicitId || crypto.randomUUID();
         
-        try {
-          // 1. Verificar se já existe para não sobrescrever dados
-          const { data: existing } = await supabase
-            .from('content_presets')
-            .select('id')
-            .eq('id', id)
-            .maybeSingle();
-
-          if (existing) {
-            console.log('[Store] Session already exists, skipping default upsert:', id);
-            await get().initializePresets();
-            set({ activePresetId: id });
-            return id;
-          }
-
-          const shortId = Math.random().toString(36).substring(2, 8).toUpperCase();
-          console.log('[Store] Creating new draft session:', id);
-
-          const { data, error } = await supabase
-            .from('content_presets')
-            .insert({
-              id: id,
-              name: `Draft: ${track} (${shortId})`,
-              description: 'Sandbox criado automaticamente para esta sessão.',
-              track: track,
-              sessions: BACKBONE_SESSIONS,
-              config: {
-                model: 'gpt-5.4',
-                temperature: 0.7,
-                prompt: 'Atue como um Roteirista Master. Sua tarefa é criar roteiros de alta performance, respeitando estritamente as sessões ativas deste Cocreator Studio. Retorne apenas o JSON final.'
-              }
-            })
-            .select()
-            .single();
-
-          if (error) {
-            console.error('[Supabase] Insert Error:', error.message, error.details);
-            throw error;
-          }
-          
-          await get().initializePresets();
-          set({ activePresetId: data.id });
-          return data.id;
-        } catch (error) {
-          console.error('Error creating/syncing draft preset:', error);
-          return null;
+        // 1. Verifica se já existe no estado local
+        const existingLocal = get().presets.find(p => p.id === id);
+        if (existingLocal) {
+           console.log('[Store] Ephemeral session already exists locally:', id);
+           set({ activePresetId: id });
+           return id;
         }
+
+        // 2. Verifica se já existe no banco (ex: rascunho duplicado via UI que ainda não foi pro Zustand local)
+        const dbPreset = await fetchPresetById(id);
+        if (dbPreset) {
+           console.log('[Store] Session found in DB. Injecting to local store:', id);
+           const loadedPreset: Preset = {
+             id: dbPreset.id as string,
+             name: dbPreset.name as string,
+             type: (dbPreset.track || 'general') as ContentType,
+             description: (dbPreset.description || '') as string,
+             sessions: (dbPreset.sessions || []) as SystemMessageSession[],
+             prompt: ((dbPreset.config as Record<string, unknown>)?.prompt || '') as string,
+             model: ((dbPreset.config as Record<string, unknown>)?.model || 'gpt-5.4') as string,
+             temperature: ((dbPreset.config as Record<string, unknown>)?.temperature ?? 0.7) as number,
+             isFavorite: false,
+             createdAt: dbPreset.created_at as string,
+             updatedAt: dbPreset.updated_at as string,
+             config: dbPreset.config as any
+           };
+           set(state => ({
+             presets: [...state.presets, loadedPreset],
+             activePresetId: id
+           }));
+           return id;
+        }
+
+        const shortId = Math.random().toString(36).substring(2, 8).toUpperCase();
+        console.log('[Store] Creating new ephemeral draft session:', id);
+
+        const newDraftPreset: Preset = {
+          id: id,
+          name: `Draft: ${track} (${shortId})`,
+          description: 'Sandbox efêmero criado automaticamente para esta sessão.',
+          type: track,
+          sessions: BACKBONE_SESSIONS,
+          prompt: 'Atue como um Roteirista Master. Sua tarefa é criar roteiros de alta performance, respeitando estritamente as sessões ativas deste Cocreator Studio. Retorne apenas o JSON final.',
+          model: 'gpt-5.4',
+          temperature: 0.7,
+          isFavorite: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          // Config flag used later when converting it to a real preset
+          ...( { config: { is_draft: true } } as any /* eslint-disable-line @typescript-eslint/no-explicit-any */ )
+        };
+
+        // CORREÇÃO: Para o Agente Arquiteto n8n conseguir atualizar o preset via DB e a UI atualizar via Realtime,
+        // o draft OBRIGATORIAMENTE precisa existir no Supabase. Vamos fazer um UPSERT fire-and-forget.
+        supabase.from('content_presets').upsert({
+          id: newDraftPreset.id,
+          name: newDraftPreset.name,
+          description: newDraftPreset.description,
+          track: newDraftPreset.type,
+          sessions: newDraftPreset.sessions,
+          config: newDraftPreset.config
+        }, { onConflict: 'id' })
+        .then(({ error }) => {
+          if (error) console.error('[Store] Erro ao salvar draft no DB:', error);
+        });
+
+        // Adiciona no state local (Zustand)
+        set(state => ({
+          presets: [...state.presets, newDraftPreset],
+          activePresetId: id
+        }));
+
+        return id;
       },
 
       initializePresets: async () => {
@@ -113,18 +144,21 @@ export const usePresetStore = create<PresetState>()(
           const data = await fetchContentPresets();
           console.log('[Store] Presets fetched from DB:', data.length);
           
-          const mappedPresets: Preset[] = data.map((p) => ({
-            id: p.id as string,
-            name: p.name as string,
-            type: (p.track || 'general') as ContentType,
-            description: (p.description || '') as string,
-            sessions: (p.sessions || []) as SystemMessageSession[],
-            prompt: ((p.config as Record<string, unknown>)?.prompt || '') as string,
-            model: ((p.config as Record<string, unknown>)?.model || 'gpt-5.4') as string,
-            temperature: ((p.config as Record<string, unknown>)?.temperature ?? 0.7) as number,
-            createdAt: p.created_at as string,
-            updatedAt: p.updated_at as string,
-          }));
+          const mappedPresets: Preset[] = data
+            .filter((p) => !((p.config as Record<string, unknown>)?.is_draft === true))
+            .map((p) => ({
+              id: p.id as string,
+              name: p.name as string,
+              type: (p.track || 'general') as ContentType,
+              description: (p.description || '') as string,
+              sessions: (p.sessions || []) as SystemMessageSession[],
+              prompt: ((p.config as Record<string, unknown>)?.prompt || '') as string,
+              model: ((p.config as Record<string, unknown>)?.model || 'gpt-5.4') as string,
+              temperature: ((p.config as Record<string, unknown>)?.temperature ?? 0.7) as number,
+              isFavorite: ((p.config as Record<string, unknown>)?.isFavorite === true) as boolean,
+              createdAt: p.created_at as string,
+              updatedAt: p.updated_at as string,
+            }));
 
           set({ 
             presets: mappedPresets, 
@@ -182,13 +216,40 @@ export const usePresetStore = create<PresetState>()(
         };
       }),
 
-      updatePreset: (id, updates) => set((state) => ({
-        presets: state.presets.map((preset) =>
-          preset.id === id
-            ? { ...preset, ...updates, updatedAt: new Date().toISOString() }
-            : preset
-        ),
-      })),
+      updatePreset: (id, updates) => {
+        set((state) => ({
+          presets: state.presets.map((preset) =>
+            preset.id === id
+              ? { ...preset, ...updates, updatedAt: new Date().toISOString() }
+              : preset
+          ),
+        }));
+        
+        // Sincronizar 'isFavorite' (e outras atualizações leves) com o Supabase
+        // Não bloqueia a UI (fire and forget)
+        const currentPreset = get().presets.find(p => p.id === id);
+        if (currentPreset) {
+          supabase
+            .from('content_presets')
+            .update({ 
+              name: currentPreset.name,
+              description: currentPreset.description,
+              track: currentPreset.type,
+              sessions: currentPreset.sessions,
+              config: {
+                prompt: currentPreset.prompt,
+                model: currentPreset.model,
+                temperature: currentPreset.temperature,
+                isFavorite: currentPreset.isFavorite,
+                ...(currentPreset as any /* eslint-disable-line @typescript-eslint/no-explicit-any */).config
+              }
+            })
+            .eq('id', id)
+            .then(({ error }) => {
+              if (error) console.error('[Supabase] Erro ao sincronizar update do preset:', error);
+            });
+        }
+      },
 
       deletePreset: (id) => set((state) => ({
         presets: state.presets.filter((preset) => preset.id !== id),
@@ -368,9 +429,11 @@ export const DEFAULT_PRESETS: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>[] =
     ]
   },
   {
-    id: 'marketplace-conversion',
     name: 'Vídeo Marketplace',
+    type: 'video',
     description: 'Framework para anúncios focados em venda direta ESTRITAMENTE para Marketplace (Mercado Livre, Amazon, TikTok Shop).',
+    model: 'gpt-5.4',
+    temperature: 0.7,
     prompt: 'CRIE AGORA O ROTEIRO E INICIE A PRODUÇÃO EXCLUSIVAMENTE PARA ESTE PRODUTO ABAIXO. IGNORE QUALQUER PRODUTO ANTERIOR.\n\nNome do Produto: [PRODUTO]\nSlug da Imagem: [SLUG]\n\n[RESTRIÇÕES ESPECÍFICAS DESTE PRODUTO]\nRestrição Narrativa: [NARRATIVA]\nRestrição Visual: [VISUAL]\n\nInstrução Final: Respeite as restrições acima. Você DEVE usar estritamente o "Nome do Produto" e o "Slug da Imagem" declarados nesta mensagem.',
     sessions: [
       {

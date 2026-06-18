@@ -1,11 +1,73 @@
 import { supabase } from '@/lib/supabase';
-import { 
-  PostImage, PostAudio, PostVideo, PostVideoCena,
-  Product, Account, Client, PostDetailsPayload 
-} from './google-sheets';
 
-// Re-exporting interfaces imported from google-sheets
-export type { PostImage, PostAudio, PostVideo, PostVideoCena, Product, Account, Client, PostDetailsPayload };
+export interface PostImage {
+  id_post: string;
+  image_url?: string;
+  prompt_utilizado?: string;
+  data_geracao?: string;
+  numero_cena?: string;
+  Sincronizado_Pinecone?: string;
+  url_imagem_fundo?: string; 
+  texto_na_imagem?: string; 
+  id_cena?: string;
+}
+
+export interface PostAudio {
+  id_audio: string;
+  id_post: string;
+  audio_url?: string;
+  texto_narrado?: string;
+  data_geracao?: string;
+  numero_cena?: string;
+  timestamps?: string;
+  id_cena?: string;
+}
+
+export interface PostVideo {
+  id_video_final: string;
+  id_post: string;
+  video_final_url?: string;
+  data_compilacao?: string;
+}
+
+export interface PostVideoCena {
+  id: string; // Este UUID agora será gerado no n8n a cada tentativa (Histórico)
+  id_post: string;
+  id_cena?: string; // Foreign Key vinculando este vídeo gerado à cena do JSON
+  numero_cena: number;
+  video_url: string;
+  status: string;
+  error_log?: string;
+  data_geracao?: string;
+}
+
+export interface Product {
+  Produto: string;
+  slug_embalagem: string;
+  slug_imagem_real: string;
+  Restricao_Narrativa?: string;
+  Restricao_Visual?: string;
+}
+
+export interface Account {
+  id_conta: string;
+  id_cliente: string;
+  nicho: string;
+  nome_conta: string;
+  conta_id_instagram?: string;
+  ig_access_token?: string;
+  yt_credencial?: string;
+  conta_id_facebook?: string;
+  facebook_access_token?: string;
+  conta_id_threads?: string;
+  threads_access_token?: string;
+}
+
+export interface Client {
+  id_cliente: string;
+  nome_cliente: string;
+  chat_id: string;
+}
 
 export interface ContentPost {
   id_post: string;
@@ -29,7 +91,42 @@ export interface ContentPost {
   images_status?: 'Pendente' | 'OK';
   audio_status?: 'Pendente' | 'OK';
   video_status?: 'Pendente' | 'OK';
+  imagens?: PostImage[];
 }
+
+export interface ProductionList {
+  id: string;
+  name: string;
+  preset_id: string;
+  items: Array<{
+    tema: string;
+    prompt: string;
+    titulo_otimizado?: string;
+    captions?: string;
+    hashtags?: string;
+  }>;
+  status: string;
+  created_at: string;
+}
+
+export interface ProductionBatch {
+  id: string;
+  name: string;
+  preset_id?: string;
+  account_id?: string;
+  items: Array<{ uuid: string; produto: string; slug: string }>;
+  created_at: string;
+}
+
+export interface PostDetailsPayload {
+  post: ContentPost | null;
+  imagens: PostImage[];
+  audios: PostAudio[];
+  videos: PostVideo[];
+  videos_cenas?: PostVideoCena[];
+  has_preset?: boolean;
+}
+
 
 /**
  * NOMES DAS TABELAS (SUBSTITUINDO GIDs)
@@ -48,11 +145,20 @@ export const GID_IMAGENS = TABLE_IMAGENS;
 export const GID_AUDIOS = TABLE_AUDIOS;
 export const GID_VIDEOS = TABLE_VIDEOS;
 
-export async function fetchTable<T>(tableName: string): Promise<T[]> {
-  const { data, error } = await supabase
+export async function fetchTable<T>(tableName: string, page?: number, limit?: number): Promise<T[]> {
+  let query = supabase
     .from(tableName)
     .select('*');
+    
+  if (page !== undefined && limit !== undefined) {
+    const from = page * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  } else {
+    query = query.limit(500); // Prevent OOM
+  }
   
+  const { data, error } = await query;
   if (error) {
     console.error(`Error fetching table ${tableName} from Supabase:`, error);
     return [];
@@ -61,39 +167,91 @@ export async function fetchTable<T>(tableName: string): Promise<T[]> {
   return data as T[];
 }
 
-export async function fetchAllImages(): Promise<PostImage[]> {
-  return fetchTable<PostImage>(TABLE_IMAGENS);
+export async function fetchAllImages(page?: number, limit?: number): Promise<PostImage[]> {
+  return fetchTable<PostImage>(TABLE_IMAGENS, page, limit);
 }
 
-export async function fetchAllAudios(): Promise<PostAudio[]> {
-  return fetchTable<PostAudio>(TABLE_AUDIOS);
+export async function fetchAllAudios(page?: number, limit?: number): Promise<PostAudio[]> {
+  return fetchTable<PostAudio>(TABLE_AUDIOS, page, limit);
 }
 
 export async function fetchProducts(): Promise<Product[]> {
   const { data, error } = await supabase
     .from('produtos')
     .select('*');
-  
+
   if (error) {
     console.error('Error fetching products from Supabase:', error);
     return [];
   }
-  
+
   // Mapear campos do Postgres (snake_case) de volta para o padrão esperado pela interface (Pascal/Camel)
-  return data.map((p) => ({
-    Produto: p.produto,
-    slug_embalagem: p.slug_embalagem,
-    slug_imagem_real: p.slug_imagem_real,
-    Restricao_Narrativa: p.restricao_narrativa,
-    Restricao_Visual: p.restricao_visual
-  })) as Product[];
+  return data.map((item: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => ({
+    Produto: item.produto,
+    slug_embalagem: item.slug_embalagem,
+    slug_imagem_real: item.slug_imagem_real,
+    Restricao_Narrativa: item.restricao_narrativa,
+    Restricao_Visual: item.restricao_visual
+  }));
 }
 
-export async function fetchContentPosts(): Promise<ContentPost[]> {
+export async function fetchProductionLists(): Promise<ProductionList[]> {
   const { data, error } = await supabase
-    .from('posts')
+    .from('production_lists')
     .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching production lists:', error);
+    return [];
+  }
+
+  return data as ProductionList[];
+}
+
+export async function fetchProductionBatches(): Promise<ProductionBatch[]> {
+  const { data, error } = await supabase
+    .from('production_batches')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error fetching production batches:', error);
+    return [];
+  }
+
+  return data as ProductionBatch[];
+}
+
+export async function createProductionBatch(batch: Omit<ProductionBatch, 'id' | 'created_at'>): Promise<ProductionBatch | null> {
+  const { data, error } = await supabase
+    .from('production_batches')
+    .insert(batch)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error creating production batch:', error);
+    return null;
+  }
+  return data as ProductionBatch;
+}
+
+export async function fetchContentPosts(page?: number, limit?: number): Promise<ContentPost[]> {
+  let query = supabase
+    .from('posts')
+    .select('*, imagens(image_url, url_imagem_fundo, numero_cena)')
     .order('data_criacao', { ascending: false });
+    
+  if (page !== undefined && limit !== undefined) {
+    const from = page * limit;
+    const to = from + limit - 1;
+    query = query.range(from, to);
+  } else {
+    query = query.limit(200); // Prevent OOM
+  }
+  
+  const { data, error } = await query;
   
   if (error) {
     console.error('Error fetching posts from Supabase:', error);
@@ -149,7 +307,7 @@ export async function fetchPresetById(id: string): Promise<Record<string, unknow
     .from('content_presets')
     .select('*')
     .eq('id', id)
-    .single();
+    .maybeSingle();
 
   if (error) {
     console.error(`[Supabase] Error fetching preset ${id}:`, error.message);
@@ -181,12 +339,13 @@ export async function createPresetInSupabase(preset: Record<string, unknown>) {
 
 export async function fetchPostDetails(id_post: string): Promise<PostDetailsPayload> {
   // Using a dummy filter to bust Supabase/Cloudflare cache
-  const [postRes, imagensRes, audiosRes, videosRes, videosCenasRes] = await Promise.all([
+  const [postRes, imagensRes, audiosRes, videosRes, videosCenasRes, presetRes] = await Promise.all([
     supabase.from('posts').select('*').eq('id_post', id_post).single(),
     supabase.from('imagens').select('*').eq('id_post', id_post).order('data_geracao', { ascending: false }).not('id_imagem', 'is', null),
     supabase.from('audios').select('*').eq('id_post', id_post).order('data_geracao', { ascending: false }).not('id_audio', 'is', null),
     supabase.from('videos').select('*').eq('id_post', id_post).order('data_compilacao', { ascending: false }),
-    supabase.from('videos_cenas').select('*').eq('id_post', id_post).order('data_geracao', { ascending: false })
+    supabase.from('videos_cenas').select('*').eq('id_post', id_post).order('data_geracao', { ascending: false }),
+    supabase.from('content_presets').select('id').eq('id', id_post).maybeSingle()
   ]);
 
   if (postRes.error) {
@@ -198,7 +357,8 @@ export async function fetchPostDetails(id_post: string): Promise<PostDetailsPayl
     imagens: (imagensRes.data || []) as PostImage[],
     audios: (audiosRes.data || []) as PostAudio[],
     videos: (videosRes.data || []) as PostVideo[],
-    videos_cenas: (videosCenasRes.data || []) as PostVideoCena[]
+    videos_cenas: (videosCenasRes.data || []) as PostVideoCena[],
+    has_preset: !!presetRes.data
   };
 }
 
@@ -250,7 +410,7 @@ export async function duplicatePostAsDraft(oldId: string): Promise<string> {
       });
 
   // 1. Fetch old post
-  const { data: oldPost } = await supabase.from('posts').select('*').eq('id_post', oldId).single();
+  const { data: oldPost } = await supabase.from('posts').select('*').eq('id_post', oldId).maybeSingle();
   
   if (oldPost) {
     // 2. Insert new post (copy metadata, but no roteiro_gerado)
@@ -269,7 +429,7 @@ export async function duplicatePostAsDraft(oldId: string): Promise<string> {
   }
 
   // 3. Fetch old preset
-  const { data: oldPreset } = await supabase.from('content_presets').select('*').eq('id', oldId).single();
+  const { data: oldPreset } = await supabase.from('content_presets').select('*').eq('id', oldId).maybeSingle();
 
   if (oldPreset) {
     // 4. Insert new preset with a unique name to avoid content_presets_name_key constraint
@@ -294,4 +454,25 @@ export async function duplicatePostAsDraft(oldId: string): Promise<string> {
   }
 
   return newId;
+}
+
+export async function fetchMLCampaigns() {
+  const { data, error } = await supabase.from('ml_campaigns').select(`
+    *,
+    ml_campaign_items (*)
+  `).order('campaign_id', { ascending: false });
+  if (error) {
+    console.error('Error fetching ML campaigns', error);
+    return [];
+  }
+  return data;
+}
+
+export async function fetchBlingPedidos() {
+  const { data, error } = await supabase.from('bling_pedidos').select('*').order('data', { ascending: false }).limit(100);
+  if (error) {
+    console.error('Error fetching Bling pedidos', error);
+    return [];
+  }
+  return data;
 }

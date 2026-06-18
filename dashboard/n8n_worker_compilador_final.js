@@ -9,14 +9,59 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 // 1. Extração Segura de Dados (Detectando payload dentro de 'body')
-let input = (typeof $json !== 'undefined' && $json !== null) ? $json : $input.item.json;
+let input = {};
+
+function getBodyFromNode(nodeName) {
+    try {
+        const node = $(nodeName);
+        if (node) {
+            if (node.item && node.item.json) {
+                if (node.item.json.body) return node.item.json.body;
+                if (node.item.json.video_urls) return node.item.json;
+            }
+            if (typeof node.first === 'function') {
+                const firstItem = node.first();
+                if (firstItem && firstItem.json) {
+                    if (firstItem.json.body) return firstItem.json.body;
+                    if (firstItem.json.video_urls) return firstItem.json;
+                }
+            }
+        }
+    } catch (e) {
+        // Ignora erro se o nó não existir no grafo
+    }
+    return null;
+}
+
+// Tenta obter do nó 'Webhook' ou 'webhook'
+input = getBodyFromNode('Webhook') || getBodyFromNode('webhook') || {};
+
+// Fallback para $input (se conectado diretamente ao webhook)
+if (!input.video_urls) {
+    try {
+        if (typeof $input !== 'undefined') {
+            if (typeof $input.first === 'function' && $input.first() && $input.first().json) {
+                const firstJson = $input.first().json;
+                input = firstJson.body || firstJson || {};
+            } else if ($input.item && $input.item.json) {
+                const itemJson = $input.item.json;
+                input = itemJson.body || itemJson || {};
+            }
+        }
+    } catch (e) {}
+}
+
+// Fallback para $json
+if (!input.video_urls) {
+    try {
+        if (typeof $json !== 'undefined' && $json !== null) {
+            input = $json.body || $json || {};
+        }
+    } catch (e) {}
+}
 
 // 1.1. Gerar ID único para o vídeo final
 const videoFinalId = crypto.randomUUID();
-
-if (input.body && typeof input.body === 'object') {
-    input = input.body;
-}
 
 const { id_post, video_urls, background_music_url } = input;
 

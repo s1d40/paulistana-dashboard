@@ -2,19 +2,23 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { usePresetStore, SystemMessageSession } from '@/store/presetStore';
+import { useProductionQueue } from '@/store/production-queue';
 import { 
   PlayCircle, AlertCircle, Loader2, CheckCircle2, 
   PenTool, Sparkles, Package, Clock, Settings2, 
   Lock, Unlock, ChevronRight, ChevronDown, ShieldCheck,
-  Music, Image as ImageIcon, Video
+  Music, Image as ImageIcon, Video, Maximize,
+  Copy, Download, Share2, Calendar, ExternalLink,
+  Layers, Globe, CalendarDays, MoreHorizontal, Type, Smartphone
 } from 'lucide-react';
 import ChatPanel from '@/components/chat-panel';
 import PresetSelector from '@/components/preset-selector';
 import PromptEditor from '@/components/prompt-editor';
 import AccountSelector from '@/components/account-selector';
 import ProductSelector from '@/components/product-selector';
-import { fetchProducts, fetchContentPosts, fetchTable, GID_VIDEOS, GID_IMAGENS, GID_AUDIOS, Product, Account, Client, PostImage, PostAudio, PostVideo } from '@/services/supabase-service';
+import { fetchProducts, fetchProductionLists, fetchProductionBatches, createProductionBatch, fetchContentPosts, fetchTable, GID_VIDEOS, GID_IMAGENS, GID_AUDIOS, Product, ProductionList, ProductionBatch, Account, Client, PostImage, PostAudio, PostVideo, PostVideoCena } from '@/services/supabase-service';
 import clsx from 'clsx';
+import { supabase } from '@/lib/supabase';
 
 interface ProductionItem {
   uuid: string;
@@ -24,17 +28,37 @@ interface ProductionItem {
   videoUrl?: string;
   images: string[];
   audios: string[];
+  customPrompt?: string;
+  tituloOtimizado?: string;
+  captions?: string;
+  hashtags?: string;
+  status_agendamento?: string;
+  data_agendamento?: string;
+  
+  // Staging Area Flags
+  hasScript?: boolean;
+  scriptGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
+  imagesGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
+  audiosGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
+  videoGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
 }
 
 export default function ProductionStudioPage() {
   const { presets, activePresetId, updatePreset } = usePresetStore();
+  const { generateSceneImage, generateSceneAudio, renderAllScenes, compileFinalVideo } = useProductionQueue();
   
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<'idle' | 'initializing' | 'running' | 'success' | 'error'>('idle');
+  const [isDashboardView, setIsDashboardView] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [productionItems, setProductionItems] = useState<ProductionItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [productionLists, setProductionLists] = useState<ProductionList[]>([]);
+  const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
   
+  const [dataSource, setDataSource] = useState<'products' | 'lists'>('products');
+  const [selectedListId, setSelectedListId] = useState<string>('');
+
   // Single Production (Sandbox) State
   const [chatInput, setChatInput] = useState('');
   const [currentSandboxProduct, setCurrentSandboxProduct] = useState<Product | null>(null);
@@ -43,11 +67,23 @@ export default function ProductionStudioPage() {
 
   // UI States
   const [showConfig, setShowConfig] = useState(false);
+  const [isChatCollapsed, setIsChatCollapsed] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
 
   // Publishing Context
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+
+  // New States for Multi-Platform Publishing & Bulk Scheduling
+  const [publishingStatus, setPublishingStatus] = useState<Record<string, Record<string, 'idle' | 'publishing' | 'published' | 'error'>>>({});
+  const [bulkInterval, setBulkInterval] = useState<number>(24);
+  const [bulkStartDate, setBulkStartDate] = useState<string>(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    return tomorrow.toISOString().substring(0, 16);
+  });
+  const [activeCardTabs, setActiveCardTabs] = useState<Record<string, 'video' | 'caption' | 'publish' | 'schedule'>>({});
 
   const activePreset = presets.find((p) => p.id === activePresetId);
   const lastPromptPresetIdRef = useRef(activePresetId);
@@ -66,9 +102,11 @@ export default function ProductionStudioPage() {
     setSelectedClient(cli);
   }, []);
 
-  // Carregar lista de produtos para a esteira
+  // Carregar lista de produtos e lotes para a esteira
   useEffect(() => {
     fetchProducts().then(setProducts);
+    fetchProductionLists().then(setProductionLists);
+    fetchProductionBatches().then(setProductionBatches);
   }, []);
 
   // Consolidar todas as sessões em um único system message
@@ -78,6 +116,209 @@ export default function ProductionStudioPage() {
       .map(s => `### ${s.title}\n${s.content}`)
       .join('\n\n');
   }, [activePreset]);
+
+  // Helpers for copy, download, publishing, and scheduling
+  const handleCopyText = (text: string, type: string) => {
+    navigator.clipboard.writeText(text);
+    alert(`${type} copiado com sucesso!`);
+  };
+
+  const downloadVideo = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename || 'video.mp4';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Erro ao baixar o vídeo via Blob:', err);
+      // Fallback: abrir em nova aba
+      window.open(url, '_blank');
+    }
+  };
+
+  const publishToPlatform = async (postId: string, platform: string) => {
+    if (!selectedAccount) {
+      alert('Selecione uma conta para publicar.');
+      return;
+    }
+    
+    setPublishingStatus(prev => ({
+      ...prev,
+      [postId]: {
+        ...(prev[postId] || {}),
+        [platform]: 'publishing'
+      }
+    }));
+
+    try {
+      const res = await fetch('/api/content/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          postId,
+          accountId: selectedAccount.id_conta,
+          platform
+        })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Erro desconhecido');
+      }
+
+      setPublishingStatus(prev => ({
+        ...prev,
+        [postId]: {
+          ...(prev[postId] || {}),
+          [platform]: 'published'
+        }
+      }));
+    } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
+      console.error(`Erro ao publicar para ${platform}:`, err);
+      setPublishingStatus(prev => ({
+        ...prev,
+        [postId]: {
+          ...(prev[postId] || {}),
+          [platform]: 'error'
+        }
+      }));
+      alert(`Erro ao publicar no ${platform}: ${err.message}`);
+    }
+  };
+
+  const publishToAllPlatforms = async (postId: string) => {
+    // Call the unified publishing webhook once with platform: 'all' to avoid duplicate postings
+    await publishToPlatform(postId, 'all');
+  };
+
+  const handleDownloadAll = async () => {
+    const readyItems = productionItems.filter(item => item.status === 'Pronto' && item.videoUrl);
+    if (readyItems.length === 0) {
+      alert('Nenhum vídeo pronto para baixar.');
+      return;
+    }
+    for (const item of readyItems) {
+      if (item.videoUrl) {
+        await downloadVideo(item.videoUrl, `video-${item.slug || 'slug'}-${item.uuid.substring(0,8)}.mp4`);
+      }
+    }
+  };
+
+  const handlePublishAll = async () => {
+    const readyItems = productionItems.filter(item => item.status === 'Pronto');
+    if (readyItems.length === 0) {
+      alert('Nenhum vídeo pronto para publicar.');
+      return;
+    }
+    if (confirm(`Deseja publicar em massa ${readyItems.length} posts para todas as redes sociais configuradas?`)) {
+      for (const item of readyItems) {
+        await publishToAllPlatforms(item.uuid);
+      }
+    }
+  };
+
+  const handleSchedulePost = async (postId: string, dateStr: string) => {
+    if (!selectedAccount) {
+      alert('Selecione uma conta para agendar.');
+      return;
+    }
+    try {
+      // 1. Atualiza banco
+      await supabase.from('posts').update({
+        data_agendamento: new Date(dateStr).toISOString(),
+        status_agendamento: 'Agendado'
+      }).eq('id_post', postId);
+
+      setProductionItems(prev => prev.map(item => {
+        if (item.uuid === postId) {
+          return {
+            ...item,
+            status_agendamento: 'Agendado',
+            data_agendamento: new Date(dateStr).toISOString()
+          };
+        }
+        return item;
+      }));
+
+      // 2. Dispara Webhook
+      const res = await fetch('/api/content/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          postId,
+          accountId: selectedAccount.id_conta,
+          platform: 'all',
+          scheduled_for: new Date(dateStr).toISOString()
+        })
+      });
+
+      if (!res.ok) throw new Error('Webhook falhou');
+
+      alert('Publicação agendada com sucesso e enviada ao n8n!');
+    } catch (err) {
+      console.error('Erro ao agendar:', err);
+      alert('Falha ao agendar post no webhook n8n.');
+    }
+  };
+
+  const handleBulkSchedule = async () => {
+    const readyItems = productionItems.filter(item => item.status === 'Pronto');
+    if (readyItems.length === 0) {
+      alert('Nenhum vídeo pronto para agendamento em massa.');
+      return;
+    }
+    if (!selectedAccount) {
+      alert('Selecione uma conta primeiro.');
+      return;
+    }
+
+    if (confirm(`Deseja agendar sequencialmente ${readyItems.length} posts a cada ${bulkInterval} horas a partir de ${new Date(bulkStartDate).toLocaleString()}?`)) {
+      const currentStart = new Date(bulkStartDate);
+      let successCount = 0;
+      
+      for (let i = 0; i < readyItems.length; i++) {
+        const item = readyItems[i];
+        const scheduleTime = new Date(currentStart.getTime() + i * bulkInterval * 60 * 60 * 1000);
+        
+        try {
+          await supabase.from('posts').update({
+            data_agendamento: scheduleTime.toISOString(),
+            status_agendamento: 'Agendado'
+          }).eq('id_post', item.uuid);
+
+          setProductionItems(prev => prev.map(pi => pi.uuid === item.uuid ? {
+            ...pi,
+            status_agendamento: 'Agendado',
+            data_agendamento: scheduleTime.toISOString()
+          } : pi));
+
+          // Enviar ao n8n
+          await fetch('/api/content/publish', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              postId: item.uuid,
+              accountId: selectedAccount.id_conta,
+              platform: 'all',
+              scheduled_for: scheduleTime.toISOString()
+            })
+          });
+          
+          successCount++;
+        } catch (e) {
+          console.error(`Falha no agendamento do post ${item.uuid}`, e);
+        }
+      }
+      
+      alert(`Agendamento em massa concluído! ${successCount}/${readyItems.length} enviados com sucesso.`);
+    }
+  };
 
   const handleUpdateSession = (sessionId: string, updates: Partial<SystemMessageSession>) => {
     if (!activePreset || !activePreset.sessions) return;
@@ -144,7 +385,12 @@ export default function ProductionStudioPage() {
               status: newStatus,
               videoUrl: liveVideo?.video_final_url,
               images: liveImages.map(img => img.image_url || img.url_imagem_fundo || ''),
-              audios: liveAudios.map(audio => audio.audio_url || '')
+              audios: liveAudios.map(audio => audio.audio_url || ''),
+              tituloOtimizado: livePost?.titulo_post || item.tituloOtimizado,
+              captions: livePost?.captions || item.captions,
+              hashtags: livePost?.hashtags || item.hashtags,
+              status_agendamento: livePost?.status_agendamento || item.status_agendamento,
+              data_agendamento: livePost?.data_agendamento || item.data_agendamento
             };
           }));
         } catch (err) {
@@ -158,67 +404,55 @@ export default function ProductionStudioPage() {
     };
   }, [productionItems.length, status]);
 
-  const handleSingleTrigger = async () => {
-    if (!activePreset || !currentSandboxProduct || !selectedAccount || !currentSandboxUuid) return;
+  const handleSandboxToolSuccess = async (toolName: string) => {
+    if (toolName !== 'save_single_script' || !currentSandboxProduct || !currentSandboxUuid) return;
 
-    setIsSingleLoading(true);
-    
+    // Adiciona na fila visualmente
     const item: ProductionItem = { 
       uuid: currentSandboxUuid, 
       produto: currentSandboxProduct.Produto,
       slug: currentSandboxProduct.slug_imagem_real,
-      status: 'Aguardando',
+      status: 'Processando',
       images: [],
       audios: []
     };
-
-    // Adicionar ao tracker imediatamente (no topo)
     setProductionItems(prev => [item, ...prev]);
+    setIsSingleLoading(true);
+    setIsDashboardView(true); // Trigger Monitoring Dashboard
 
     try {
-      // 1. Inicializar no Sheets (Reserva de ID)
-      const initRes = await fetch('/api/production', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          action: 'initialize',
-          items: [item],
-          presetName: activePreset.name,
-          id_conta: selectedAccount.id_conta
-        }),
-      });
-
-      if (!initRes.ok) throw new Error('Falha ao inicializar registros no banco.');
-
-      // 2. Disparo para o n8n
-      const res = await fetch('/api/production', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'single_production',
-          presetId: activePreset.id,
-          presetName: activePreset.name,
-          systemMessage: consolidatedSystemMessage,
-          prompt: chatInput,
-          id_conta: selectedAccount.id_conta,
-          chat_id: selectedClient?.chat_id || '',
-          items: [item]
-        }),
-      });
-
-      if (!res.ok) throw new Error('Erro ao comunicar com a esteira n8n.');
-
-      // Iniciar monitoramento global se estiver idle
-      if (status === 'idle') setStatus('success');
+      // 1. Fetch script from DB that the agent just saved
+      const { data, error } = await supabase.from('posts').select('roteiro_gerado').eq('id_post', currentSandboxUuid).single();
+      if (error || !data?.roteiro_gerado) throw new Error('Roteiro não encontrado no banco após confirmação da ferramenta.');
       
-      // Limpar seleção sandbox para permitir novo post
+      let rawScript;
+      if (typeof data.roteiro_gerado === 'string') {
+        rawScript = JSON.parse(data.roteiro_gerado);
+      } else {
+        rawScript = data.roteiro_gerado;
+      }
+      
+      const generatedScript = normalizeScript(rawScript);
+
+      // 2. Executar Pipeline de Assets e Renderização com feedback visual
+      const finalVideoUrl = await runAssetPipeline(currentSandboxUuid, currentSandboxProduct.Produto, generatedScript.cenas, generatedScript.voice_settings, (type, count) => {
+        setProductionItems(prev => prev.map(i => i.uuid === currentSandboxUuid ? { 
+          ...i, 
+          [type === 'image' ? 'images' : 'audios']: new Array(count).fill('ok') 
+        } : i));
+      });
+      
+      // 3. Atualizar Status
+      setProductionItems(prev => prev.map(i => i.uuid === currentSandboxUuid ? { ...i, status: 'Pronto', videoUrl: finalVideoUrl } : i));
+
+      // Limpa a seleção para o próximo post
       setCurrentSandboxProduct(null);
       setCurrentSandboxUuid(null);
-      setChatInput(activePreset.prompt);
-
-    } catch (error) {
-      console.error(error);
-      alert('Erro ao iniciar produção individual.');
+      setChatInput(activePreset?.prompt || '');
+    } catch (err) {
+      console.error(err);
+      setProductionItems(prev => prev.map(i => i.uuid === currentSandboxUuid ? { ...i, status: 'Erro' } : i));
+      alert('Erro na orquestração da produção individual.');
     } finally {
       setIsSingleLoading(false);
     }
@@ -262,26 +496,186 @@ export default function ProductionStudioPage() {
     updatePreset(activePreset.id, { sessions: newSessions });
   };
 
-  const handleStartProduction = async () => {
-    if (!activePreset || products.length === 0 || !selectedAccount) return;
+  // --- SHARED ORCHESTRATION PIPELINE ---
+  const normalizeScript = (rawScript: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
+    const script = { ...rawScript };
+    if (script.cenas && Array.isArray(script.cenas)) {
+      script.cenas = script.cenas.map((cena: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
+        const updatedCena = { 
+          ...cena,
+          id_cena: cena.id_cena || crypto.randomUUID()
+        };
+        if (!updatedCena.replicate) {
+          updatedCena.replicate = {
+            model_url: 'https://api.replicate.com/v1/models/google/nano-banana/predictions',
+            input: {
+              prompt: updatedCena.prompt_visual,
+              negative_prompt: updatedCena.prompt_negativo,
+              aspect_ratio: '9:16',
+              output_format: 'jpg'
+            }
+          };
+        }
+        return updatedCena;
+      });
+    }
+    const defaultVoice = {
+      model_id: "eleven_multilingual_v2",
+      stability: 0.7,
+      similarity_boost: 0.75,
+      style: 0.15,
+      use_speaker_boost: true,
+      speed: 1.10
+    };
+    if (!script.voice_settings) {
+      script.voice_settings = defaultVoice;
+    }
+    return script;
+  };
+
+  const runAssetPipeline = async (uuid: string, itemName: string, scenes: any[], voiceSettings: any /* eslint-disable-line @typescript-eslint/no-explicit-any */, onProgress?: (type: 'image' | 'audio', count: number) => void) => {
+    // 1. Aguardar Assets (Imagens/Áudios) ficarem prontos via Polling
+    let allImages: PostImage[] = [];
+    let allAudios: PostAudio[] = [];
+    let assetsReady = false;
+    let attempts = 0;
+
+    while (!assetsReady && attempts < 60) { // Espera até 5 minutos
+      const [imgsRes, audsRes] = await Promise.all([
+        supabase.from('imagens').select('*').eq('id_post', uuid),
+        supabase.from('audios').select('*').eq('id_post', uuid)
+      ]);
+      
+      allImages = (imgsRes.data || []).filter(img => img.image_url || img.url_imagem_fundo) as PostImage[];
+      allAudios = (audsRes.data || []).filter(aud => aud.audio_url) as PostAudio[];
+
+      if (onProgress) {
+        onProgress('image', allImages.length);
+        onProgress('audio', allAudios.length);
+      }
+
+      assetsReady = scenes.every((scene: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
+        const hasImg = allImages.some(img => Number(img.numero_cena) === Number(scene.numero));
+        const hasAud = allAudios.some(aud => Number(aud.numero_cena) === Number(scene.numero));
+        return hasImg && hasAud;
+      });
+
+      if (!assetsReady) {
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        attempts++;
+      }
+    }
+
+    if (!assetsReady) {
+      throw new Error(`Timeout: Imagens ou Áudios demoraram muito para gerar. Tente renderizar o vídeo novamente mais tarde para ${itemName}.`);
+    }
+
+    // 2. Renderizar Cenas Individuais
+    await renderAllScenes(uuid, scenes, allImages, allAudios);
+
+    // 3. Esperar Cenas Renderizadas
+    let scenesReady = false;
+    attempts = 0;
+    let allVideos: PostVideoCena[] = [];
+    
+    while (!scenesReady && attempts < 80) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      const vidsRes = await supabase.from('videos_cenas').select('*').eq('id_post', uuid);
+      allVideos = (vidsRes.data || []) as PostVideoCena[];
+      
+      const itemVideos = allVideos.filter(v => v.video_url);
+      scenesReady = scenes.every((scene: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => itemVideos.some(v => Number(v.numero_cena) === Number(scene.numero)));
+      attempts++;
+    }
+
+    if (!scenesReady) throw new Error(`Timeout aguardando N8N renderizar as cenas visuais para ${itemName}`);
+
+    // 4. Compilação Final (Juntar Cenas)
+    const videoUrls = allVideos
+      .filter(v => v.video_url)
+      .sort((a, b) => Number(a.numero_cena) - Number(b.numero_cena))
+      .map(v => v.video_url)
+      .filter(Boolean) as string[];
+
+    await compileFinalVideo(uuid, videoUrls);
+
+    // 5. Esperar Vídeo Final Compilado no Supabase
+    let videoFinalReady = false;
+    attempts = 0;
+    let finalVideoUrl = '';
+
+    while (!videoFinalReady && attempts < 60) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      const finalVidRes = await supabase.from('videos').select('*').eq('id_post', uuid).maybeSingle();
+      
+      if (finalVidRes.data && finalVidRes.data.video_final_url) {
+        videoFinalReady = true;
+        finalVideoUrl = finalVidRes.data.video_final_url;
+      }
+      attempts++;
+    }
+
+    if (!videoFinalReady) throw new Error(`Timeout aguardando vídeo final processado para ${itemName}`);
+
+    return finalVideoUrl;
+  };
+
+  // --- STAGING AREA E FUNÇÕES GRANULARES ---
+
+  const handleLoadStagingArea = async (testOnly: boolean = false) => {
+    if (!activePreset || !selectedAccount) return;
+    
+    let items: ProductionItem[] = [];
+    
+    if (dataSource === 'products') {
+      if (products.length === 0) return;
+      items = products.map(p => ({
+        uuid: crypto.randomUUID(),
+        produto: p.Produto,
+        slug: p.slug_imagem_real,
+        status: 'Aguardando',
+        images: [],
+        audios: [],
+        hasScript: false,
+        scriptGeneratingStatus: 'idle',
+        imagesGeneratingStatus: 'idle',
+        audiosGeneratingStatus: 'idle',
+        videoGeneratingStatus: 'idle'
+      }));
+    } else {
+      const list = productionLists.find(l => l.id === selectedListId);
+      if (!list || !list.items || list.items.length === 0) return;
+      items = list.items.map(item => ({
+        uuid: crypto.randomUUID(),
+        produto: item.tema,
+        slug: 'ideation-list-item', // Mock slug since it's not a real product
+        status: 'Aguardando',
+        images: [],
+        audios: [],
+        customPrompt: item.prompt,
+        tituloOtimizado: item.titulo_otimizado,
+        captions: item.captions,
+        hashtags: item.hashtags,
+        hasScript: false,
+        scriptGeneratingStatus: 'idle',
+        imagesGeneratingStatus: 'idle',
+        audiosGeneratingStatus: 'idle',
+        videoGeneratingStatus: 'idle'
+      }));
+    }
+
+    if (testOnly && items.length > 0) {
+      items = [items[0]]; // Pegar apenas o primeiro item para testar
+    }
 
     setIsLoading(true);
+    setIsDashboardView(true);
     setStatus('initializing');
     setErrorMessage('');
-
-    // 1. Gerar UUIDs locais
-    const items: ProductionItem[] = products.map(p => ({
-      uuid: crypto.randomUUID(),
-      produto: p.Produto,
-      slug: p.slug_imagem_real,
-      status: 'Aguardando',
-      images: [],
-      audios: []
-    }));
     setProductionItems(items);
 
     try {
-      // 2. Pré-Reserva no Sheets
+      // Pré-Reserva no Sheets
       const initRes = await fetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -293,26 +687,22 @@ export default function ProductionStudioPage() {
         }),
       });
 
-      if (!initRes.ok) throw new Error('Falha ao inicializar registros no banco.');
-
-      // 3. Disparo para o n8n
-      setStatus('running');
-      const res = await fetch('/api/production', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'mass_production',
-          presetId: activePreset.id,
-          presetName: activePreset.name,
-          systemMessage: consolidatedSystemMessage,
-          prompt: activePreset.prompt,
-          id_conta: selectedAccount.id_conta,
-          chat_id: selectedClient?.chat_id || '',
-          items: items 
-        }),
+      if (!initRes.ok) {
+        const errData = await initRes.json().catch(() => ({}));
+        throw new Error(`Falha ao inicializar registros no banco: ${errData.error || initRes.statusText}`);
+      }
+      
+      // Criar o Lote no Histórico (Controle de Batch)
+      const batchName = `Lote de ${items.length} itens - ${new Date().toLocaleString('pt-BR')}`;
+      const newBatch = await createProductionBatch({
+        name: batchName,
+        preset_id: activePresetId ?? undefined,
+        account_id: selectedAccount.id_conta,
+        items: items.map(i => ({ uuid: i.uuid, produto: i.produto, slug: i.slug }))
       });
-
-      if (!res.ok) throw new Error('Erro ao comunicar com a esteira n8n.');
+      if (newBatch) {
+        setProductionBatches(prev => [newBatch, ...prev]);
+      }
 
       setStatus('success');
     } catch (error: unknown) {
@@ -320,6 +710,213 @@ export default function ProductionStudioPage() {
       setErrorMessage(error instanceof Error ? error.message : 'Erro desconhecido');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleLoadExistingBatch = async (batch: ProductionBatch) => {
+    setIsLoading(true);
+    setIsDashboardView(true);
+    setStatus('initializing');
+    setErrorMessage('');
+    
+    // Recriar o state visual inicial
+    let items: ProductionItem[] = batch.items.map(item => ({
+      uuid: item.uuid,
+      produto: item.produto,
+      slug: item.slug,
+      status: 'Aguardando',
+      images: [],
+      audios: [],
+      hasScript: false,
+      scriptGeneratingStatus: 'idle',
+      imagesGeneratingStatus: 'idle',
+      audiosGeneratingStatus: 'idle',
+      videoGeneratingStatus: 'idle'
+    }));
+
+    // Inteligência de Sincronização: Perguntar ao Supabase o status real!
+    try {
+      const uuids = items.map(i => i.uuid);
+      // 1. Puxar Posts
+      const { data: posts } = await supabase.from('posts').select('id_post, roteiro_json, status, url_video_pronto').in('id_post', uuids);
+      // 2. Puxar Imagens
+      const { data: images } = await supabase.from('imagens').select('id_post, image_url').in('id_post', uuids);
+      // 3. Puxar Áudios
+      const { data: audios } = await supabase.from('audios').select('id_post, audio_url').in('id_post', uuids);
+
+      items = items.map(item => {
+        const post = posts?.find(p => p.id_post === item.uuid);
+        const postImages = images?.filter(img => img.id_post === item.uuid) || [];
+        const postAudios = audios?.filter(aud => aud.id_post === item.uuid) || [];
+
+        let statusAtual: 'Aguardando' | 'Processando' | 'Pronto' | 'Erro' = 'Aguardando';
+        if (post?.url_video_pronto) {
+           statusAtual = 'Pronto';
+        } else if (post?.roteiro_json || postImages.length > 0 || postAudios.length > 0) {
+           statusAtual = 'Processando';
+        }
+
+        return {
+          ...item,
+          status: statusAtual,
+          hasScript: !!post?.roteiro_json,
+          videoUrl: post?.url_video_pronto,
+          images: postImages.map(img => img.image_url),
+          audios: postAudios.map(aud => aud.audio_url)
+        };
+      });
+
+    } catch (err) {
+      console.error('Erro na sincronização inteligente do Batch', err);
+    }
+
+    setProductionItems(items);
+    setIsLoading(false);
+    setStatus('success');
+  };
+
+  const fetchScriptFromDb = async (uuid: string) => {
+    const { data, error } = await supabase.from('posts').select('roteiro_gerado').eq('id_post', uuid).maybeSingle();
+    if (error || !data || !data.roteiro_gerado) return null;
+    const rawScript = typeof data.roteiro_gerado === 'string' ? JSON.parse(data.roteiro_gerado) : data.roteiro_gerado;
+    return normalizeScript(rawScript);
+  };
+
+  const updateItemState = (uuid: string, updates: Partial<ProductionItem>) => {
+    setProductionItems(prev => prev.map(i => i.uuid === uuid ? { ...i, ...updates } : i));
+  };
+
+  const handleGenerateScript = async (item: ProductionItem) => {
+    if (!activePreset || !selectedAccount) return;
+    
+    updateItemState(item.uuid, { scriptGeneratingStatus: 'generating' });
+
+    try {
+      let newPrompt = item.customPrompt || activePreset.prompt;
+      if (dataSource === 'products') {
+        const productData = products.find(p => p.slug_imagem_real === item.slug);
+        newPrompt = newPrompt.replace(/\[PRODUTO\]/gi, item.produto);
+        newPrompt = newPrompt.replace(/\[SLUG\]/gi, item.slug);
+        newPrompt = newPrompt.replace(/\[ID_POST\]/gi, item.uuid);
+        newPrompt = newPrompt.replace(/\[UUID\]/gi, item.uuid);
+        newPrompt = newPrompt.replace(/\[NOME DO PRODUTO\]/gi, item.produto);
+        newPrompt = newPrompt.replace(/\[NOME\]/gi, item.produto);
+        if (productData) {
+          newPrompt = newPrompt.replace(/\[NARRATIVA\]/gi, productData.Restricao_Narrativa || 'Nenhuma');
+          newPrompt = newPrompt.replace(/\[VISUAL\]/gi, productData.Restricao_Visual || 'Nenhuma');
+        }
+      }
+
+      const response = await fetch('/api/chat/roteirista', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_prompt: newPrompt,
+          system_message: consolidatedSystemMessage,
+          config: {
+            model: (activePreset as any /* eslint-disable-line @typescript-eslint/no-explicit-any */)?.config?.model || 'gpt-5.4',
+            temperature: (activePreset as any /* eslint-disable-line @typescript-eslint/no-explicit-any */)?.config?.temperature || 0.7,
+            prompt: (activePreset as any /* eslint-disable-line @typescript-eslint/no-explicit-any */)?.config?.prompt || newPrompt
+          }
+        }),
+      });
+
+      if (!response.ok) throw new Error(`Erro na geração de roteiro para ${item.produto}`);
+      const { script: rawScript } = await response.json();
+      const generatedScript = normalizeScript(rawScript);
+
+      const initPostPayload: Record<string, any> = { 
+        action: 'init_post',
+        id_post: item.uuid,
+        tema_post: generatedScript.tema || `Vídeo: ${item.produto}`,
+        titulo_post: generatedScript.titulo_otimizado || item.tituloOtimizado || item.produto,
+        roteiro_gerado: JSON.stringify(generatedScript),
+        status: 'Aguardando Revisão',
+        id_conta: selectedAccount.id_conta,
+        captions: item.captions || generatedScript.captions || '',
+        hashtags: item.hashtags || generatedScript.hashtags || ''
+      };
+
+      if (dataSource === 'lists' && selectedListId) {
+        initPostPayload.production_list_id = selectedListId;
+      }
+
+      const prodRes = await fetch('/api/production', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(initPostPayload),
+      });
+
+      if (!prodRes.ok) throw new Error(`Erro ao salvar roteiro no banco`);
+
+      updateItemState(item.uuid, { scriptGeneratingStatus: 'success', hasScript: true, status: 'Processando' });
+    } catch (err) {
+      console.error(err);
+      updateItemState(item.uuid, { scriptGeneratingStatus: 'error' });
+      alert(`Falha ao gerar roteiro para ${item.produto}`);
+    }
+  };
+
+  const handleGenerateImages = async (item: ProductionItem) => {
+    updateItemState(item.uuid, { imagesGeneratingStatus: 'generating' });
+    try {
+      const script = await fetchScriptFromDb(item.uuid);
+      if (!script) throw new Error('Roteiro não encontrado no banco. Gere o roteiro primeiro.');
+      
+      const promises = script.cenas.map((cena: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => generateSceneImage(item.uuid, cena, undefined));
+      await Promise.all(promises);
+      
+      updateItemState(item.uuid, { imagesGeneratingStatus: 'success', status: 'Processando' });
+    } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
+      console.error(err);
+      updateItemState(item.uuid, { imagesGeneratingStatus: 'error' });
+      alert(`Erro nas imagens: ${err.message}`);
+    }
+  };
+
+  const handleGenerateAudios = async (item: ProductionItem) => {
+    updateItemState(item.uuid, { audiosGeneratingStatus: 'generating' });
+    try {
+      const script = await fetchScriptFromDb(item.uuid);
+      if (!script) throw new Error('Roteiro não encontrado no banco. Gere o roteiro primeiro.');
+      
+      const promises = script.cenas.map((cena: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => generateSceneAudio(item.uuid, cena, script.voice_settings));
+      await Promise.all(promises);
+      
+      updateItemState(item.uuid, { audiosGeneratingStatus: 'success', status: 'Processando' });
+    } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
+      console.error(err);
+      updateItemState(item.uuid, { audiosGeneratingStatus: 'error' });
+      alert(`Erro nos áudios: ${err.message}`);
+    }
+  };
+
+  const handleGenerateVideo = async (item: ProductionItem) => {
+    updateItemState(item.uuid, { videoGeneratingStatus: 'generating' });
+    try {
+      const script = await fetchScriptFromDb(item.uuid);
+      if (!script) throw new Error('Roteiro não encontrado no banco. Gere o roteiro primeiro.');
+      
+      const finalVideoUrl = await runAssetPipeline(item.uuid, item.produto, script.cenas, script.voice_settings);
+      
+      updateItemState(item.uuid, { videoGeneratingStatus: 'success', status: 'Pronto', videoUrl: finalVideoUrl });
+    } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
+      console.error(err);
+      updateItemState(item.uuid, { videoGeneratingStatus: 'error' });
+      alert(`Erro no vídeo: ${err.message}`);
+    }
+  };
+
+  const handleGenerateAll = async (item: ProductionItem) => {
+    try {
+      if (!item.hasScript) {
+        await handleGenerateScript(item);
+      }
+      await handleGenerateAudios(item);
+      await handleGenerateImages(item);
+      await handleGenerateVideo(item);
+    } catch (err) {
+      console.error("Erro no fluxo completo:", err);
     }
   };
 
@@ -356,11 +953,56 @@ export default function ProductionStudioPage() {
             Configurar Agente
           </button>
           
+          <button 
+            onClick={() => setIsChatCollapsed(!isChatCollapsed)}
+            className={clsx(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all",
+              isChatCollapsed 
+                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20" 
+                : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200"
+            )}
+            title="Ocultar Chat para expandir Staging Area"
+          >
+            <PenTool className="w-4 h-4" />
+            {isChatCollapsed ? "Mostrar Chat" : "Ocultar Chat"}
+          </button>
+          
+          {/* Lotes Salvos (Batches) */}
+          {productionBatches.length > 0 && (
+            <div className="flex items-center gap-2 ml-2">
+              <div className="relative group">
+                <select
+                  className="appearance-none bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs font-bold text-zinc-600 dark:text-zinc-300 rounded-xl pl-8 pr-8 py-2.5 outline-none w-56 truncate cursor-pointer transition-all border border-zinc-200 dark:border-zinc-700"
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      const batch = productionBatches.find(b => b.id === e.target.value);
+                      if (batch && confirm(`Deseja carregar o ${batch.name}? Seu lote atual será substituído na tela.`)) {
+                        handleLoadExistingBatch(batch);
+                      }
+                      e.target.value = ""; // reset
+                    }
+                  }}
+                >
+                  <option value="">Recuperar Lote Salvo...</option>
+                  {productionBatches.map(batch => (
+                    <option key={batch.id} value={batch.id}>
+                      {batch.name}
+                    </option>
+                  ))}
+                </select>
+                <Clock className="w-4 h-4 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+          )}
+          
           <div className="h-8 w-px bg-zinc-200 dark:border-zinc-800" />
           
           <div className="flex flex-col items-end">
              <span className="text-[10px] font-black text-zinc-400 uppercase">Status Global</span>
-             <span className="text-xs font-bold text-zinc-600 dark:text-zinc-300">{products.length} Ativos Carregados</span>
+             <span className="text-xs font-bold text-zinc-600 dark:text-zinc-300">
+               {dataSource === 'products' ? `${products.length} Ativos Carregados` : `${productionLists.find(l => l.id === selectedListId)?.items?.length || 0} Itens na Lista`}
+             </span>
           </div>
         </div>
       </div>
@@ -370,11 +1012,318 @@ export default function ProductionStudioPage() {
         {/* Left Sidebar: Controls & Session Editor */}
         <div className={clsx(
           "bg-zinc-50 dark:bg-zinc-900/50 border-r border-zinc-200 dark:border-zinc-800 flex flex-col overflow-hidden transition-all duration-500 ease-in-out z-10",
-          showConfig ? "w-[500px]" : "w-[400px]"
+          isChatCollapsed ? "flex-1" : (showConfig ? "w-[500px]" : "w-[400px]")
         )}>
           <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
             
-            {showConfig ? (
+            {isDashboardView ? (
+               /* REAL-TIME MONITORING DASHBOARD */
+               <section className="space-y-6 animate-in fade-in slide-in-from-left-4">
+                  <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-4">
+                    <h2 className="text-sm font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                      <PlayCircle className="w-4 h-4" /> Monitor de Produção
+                    </h2>
+                    <button 
+                      onClick={() => {
+                        if (confirm('Deseja parar o monitoramento e voltar para configurações?')) {
+                          setIsDashboardView(false);
+                          setProductionItems([]);
+                          setStatus('idle');
+                        }
+                      }} 
+                      className="text-[9px] font-black uppercase text-zinc-400 hover:text-red-500 transition-colors"
+                    >
+                      Parar / Limpar
+                    </button>
+                  </div>
+
+                  {/* PAINEL DE AÇÕES GLOBAIS EM MASSA */}
+                  {productionItems.some(item => item.status === 'Pronto') && (
+                    <div className="p-4 rounded-2xl bg-zinc-900 text-white border border-zinc-800 space-y-4 shadow-xl animate-in zoom-in-95 duration-200">
+                      <div className="flex items-center gap-2 pb-2 border-b border-zinc-800">
+                        <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
+                        <h3 className="text-xs font-black uppercase tracking-widest text-zinc-200">Ações em Massa (Lote)</h3>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <button 
+                          onClick={handleDownloadAll}
+                          className="px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-900/20"
+                        >
+                          <Download className="w-3.5 h-3.5" /> Baixar Tudo
+                        </button>
+                        <button 
+                          onClick={handlePublishAll}
+                          className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-500 hover:to-violet-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 shadow-md shadow-indigo-900/20"
+                        >
+                          <Share2 className="w-3.5 h-3.5" /> Postar Todos
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 pt-2 border-t border-zinc-800">
+                        <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-indigo-400" /> Agendamento Sequencial
+                        </span>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[8px] font-bold text-zinc-500 uppercase">Data de Início</label>
+                            <input 
+                              type="datetime-local" 
+                              value={bulkStartDate}
+                              onChange={(e) => setBulkStartDate(e.target.value)}
+                              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-1.5 text-[9px] text-zinc-300 outline-none"
+                            />
+                          </div>
+                          
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[8px] font-bold text-zinc-500 uppercase">Intervalo (Horas)</label>
+                            <select 
+                              value={bulkInterval}
+                              onChange={(e) => setBulkInterval(Number(e.target.value))}
+                              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-1.5 text-[9px] text-zinc-300 outline-none text-zinc-400"
+                            >
+                              <option value={1}>A cada 1 hora</option>
+                              <option value={2}>A cada 2 horas</option>
+                              <option value={4}>A cada 4 horas</option>
+                              <option value={6}>A cada 6 horas</option>
+                              <option value={12}>A cada 12 horas</option>
+                              <option value={24}>A cada 24 horas</option>
+                              <option value={48}>A cada 48 horas</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <button 
+                          onClick={handleBulkSchedule}
+                          className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all"
+                        >
+                          Agendar em Massa Sequencial
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={clsx(
+                    "grid gap-4",
+                    isChatCollapsed ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" : "grid-cols-1 xl:grid-cols-2"
+                  )}>
+                    {productionItems.map((item) => {
+                      const activeTab = activeCardTabs[item.uuid] || 'video';
+                      const setCardTab = (tab: 'video' | 'caption' | 'publish' | 'schedule') => setActiveCardTabs(prev => ({ ...prev, [item.uuid]: tab }));
+                      
+                      // Progress calculation
+                      let progress = 5;
+                      if (item.hasScript) progress = 25;
+                      if ((item.images?.length ?? 0) > 0) progress = 50;
+                      if ((item.audios?.length ?? 0) > 0) progress = 75;
+                      if (item.status === 'Pronto') progress = 100;
+
+                      return (
+                      <div key={item.uuid} className={clsx(
+                        "rounded-3xl border transition-all shadow-xl overflow-hidden backdrop-blur-md",
+                        item.status === 'Pronto' 
+                          ? "bg-white/80 dark:bg-zinc-900/80 border-emerald-500/30 hover:shadow-emerald-500/10" 
+                          : "bg-white/60 dark:bg-zinc-900/60 border-zinc-200/50 dark:border-zinc-800/50 hover:border-indigo-500/30"
+                      )}>
+                        {/* Progress Bar Top */}
+                        <div className="w-full h-1 bg-zinc-100 dark:bg-zinc-800">
+                          <div className={clsx("h-full transition-all duration-1000 ease-in-out", item.status === 'Pronto' ? "bg-emerald-500" : "bg-indigo-500")} style={{ width: `${progress}%` }} />
+                        </div>
+                        
+                        <div className="p-5 space-y-5">
+                          <div className="flex items-start justify-between">
+                            <div className="flex gap-4 items-center">
+                               <div className={clsx(
+                                 "w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner transition-all",
+                                 item.status === 'Pronto' 
+                                   ? "bg-gradient-to-br from-emerald-400 to-emerald-600 text-white shadow-emerald-500/30" 
+                                   : "bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-zinc-800 dark:to-zinc-900 text-zinc-500 dark:text-zinc-400"
+                               )}>
+                                  {item.status === 'Pronto' ? <CheckCircle2 className="w-6 h-6" /> : <Package className="w-6 h-6" />}
+                               </div>
+                               <div>
+                                 <h4 className="text-sm font-black text-zinc-900 dark:text-white uppercase tracking-tight leading-none mb-1">{item.produto}</h4>
+                                 <p className="text-[10px] font-mono text-zinc-400 tracking-wider">ID: {item.uuid.substring(0,12)}</p>
+                               </div>
+                            </div>
+                            
+                            <span className={clsx(
+                              "text-[9px] font-black uppercase px-3 py-1 rounded-full border shadow-sm backdrop-blur-sm",
+                              item.status === 'Pronto'
+                                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                                : item.status === 'Processando'
+                                  ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-600 dark:text-indigo-400 animate-pulse"
+                                  : "bg-zinc-500/10 border-zinc-500/20 text-zinc-500 dark:text-zinc-400"
+                            )}>
+                              {item.status}
+                            </span>
+                          </div>
+
+                          {/* IF NOT READY: PIPELINE STEPS AND GENERATE BUTTONS */}
+                          {item.status !== 'Pronto' && (
+                            <div className="bg-zinc-50/50 dark:bg-zinc-950/50 rounded-2xl p-4 border border-zinc-100 dark:border-zinc-800/50 space-y-4">
+                               {/* Pipeline Trackers */}
+                               <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", item.hasScript ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><PenTool className="w-3 h-3"/></div>
+                                     <div className={clsx("w-6 h-px", item.hasScript ? "bg-emerald-500" : "bg-zinc-200 dark:bg-zinc-800")} />
+                                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", (item.images?.length ?? 0) > 0 ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><ImageIcon className="w-3 h-3"/></div>
+                                     <div className={clsx("w-6 h-px", (item.images?.length ?? 0) > 0 ? "bg-emerald-500" : "bg-zinc-200 dark:bg-zinc-800")} />
+                                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", (item.audios?.length ?? 0) > 0 ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><Music className="w-3 h-3"/></div>
+                                     <div className={clsx("w-6 h-px", (item.audios?.length ?? 0) > 0 ? "bg-emerald-500" : "bg-zinc-200 dark:bg-zinc-800")} />
+                                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", item.videoGeneratingStatus === 'success' ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><Video className="w-3 h-3"/></div>
+                                  </div>
+                                  <span className="text-[9px] font-black uppercase text-zinc-400">{progress}% Completo</span>
+                               </div>
+
+                               <div className="grid grid-cols-2 gap-2">
+                                  <button 
+                                    onClick={() => handleGenerateAll(item)}
+                                    disabled={item.status === 'Processando'}
+                                    className={clsx(
+                                      "col-span-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2",
+                                      item.status === 'Processando' ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed" : "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white hover:scale-[1.02]"
+                                    )}
+                                  >
+                                    {item.status === 'Processando' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                    {item.status === 'Processando' ? 'Processando Automação...' : 'Gerar Vídeo Completo (Auto)'}
+                                  </button>
+                                  
+                                  <details className="col-span-2 group">
+                                     <summary className="text-[9px] font-bold uppercase text-zinc-400 hover:text-indigo-400 cursor-pointer flex items-center justify-center gap-1 mt-2">
+                                       <MoreHorizontal className="w-3 h-3" /> Controles Avançados
+                                     </summary>
+                                     <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
+                                        <button onClick={() => handleGenerateScript(item)} disabled={item.scriptGeneratingStatus === 'generating' || item.hasScript} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
+                                          {item.scriptGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <PenTool className="w-3 h-3" />} Roteiro
+                                        </button>
+                                        <button onClick={() => handleGenerateImages(item)} disabled={!item.hasScript || item.imagesGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
+                                          {item.imagesGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <ImageIcon className="w-3 h-3" />} Imagens
+                                        </button>
+                                        <button onClick={() => handleGenerateAudios(item)} disabled={!item.hasScript || item.audiosGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
+                                          {item.audiosGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Music className="w-3 h-3" />} Áudios
+                                        </button>
+                                        <button onClick={() => handleGenerateVideo(item)} disabled={!item.hasScript || item.videoGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
+                                          {item.videoGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Video className="w-3 h-3" />} Vídeo
+                                        </button>
+                                     </div>
+                                  </details>
+                               </div>
+
+                               {item.hasScript && (
+                                 <a 
+                                   href={`/conteudo/editor/${item.uuid}`} 
+                                   target="_blank"
+                                   rel="noopener noreferrer"
+                                   className="w-full mt-2 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all border flex items-center justify-center gap-1.5 bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 shadow-sm"
+                                 >
+                                   <ExternalLink className="w-3 h-3" /> Abrir no Estúdio Criativo
+                                 </a>
+                               )}
+                            </div>
+                          )}
+
+                          {/* IF READY: COMPACT TABS */}
+                          {item.status === 'Pronto' && item.videoUrl && (
+                            <div className="bg-zinc-50 dark:bg-zinc-950/80 rounded-2xl border border-zinc-100 dark:border-zinc-800/80 overflow-hidden shadow-inner">
+                               <div className="flex bg-zinc-100 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
+                                  <button onClick={() => setCardTab('video')} className={clsx("flex-1 py-2 text-[9px] font-black uppercase flex items-center justify-center gap-1.5 transition-colors", activeTab === 'video' ? "bg-white dark:bg-zinc-950 text-emerald-600 dark:text-emerald-400 border-t-2 border-t-emerald-500" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300")}><Smartphone className="w-3 h-3"/> Mídia</button>
+                                  <button onClick={() => setCardTab('caption')} className={clsx("flex-1 py-2 text-[9px] font-black uppercase flex items-center justify-center gap-1.5 transition-colors", activeTab === 'caption' ? "bg-white dark:bg-zinc-950 text-indigo-600 dark:text-indigo-400 border-t-2 border-t-indigo-500" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300")}><Type className="w-3 h-3"/> Legenda</button>
+                                  <button onClick={() => setCardTab('publish')} className={clsx("flex-1 py-2 text-[9px] font-black uppercase flex items-center justify-center gap-1.5 transition-colors", activeTab === 'publish' ? "bg-white dark:bg-zinc-950 text-blue-600 dark:text-blue-400 border-t-2 border-t-blue-500" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300")}><Globe className="w-3 h-3"/> Postar</button>
+                                  <button onClick={() => setCardTab('schedule')} className={clsx("flex-1 py-2 text-[9px] font-black uppercase flex items-center justify-center gap-1.5 transition-colors", activeTab === 'schedule' ? "bg-white dark:bg-zinc-950 text-purple-600 dark:text-purple-400 border-t-2 border-t-purple-500" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300")}><CalendarDays className="w-3 h-3"/> Agendar</button>
+                               </div>
+
+                               <div className="p-4">
+                                  {activeTab === 'video' && (
+                                     <div className="space-y-3 animate-in fade-in duration-300">
+                                       <div className="rounded-xl overflow-hidden aspect-[9/16] max-h-60 mx-auto bg-black relative shadow-lg ring-1 ring-zinc-800">
+                                         <video src={item.videoUrl} controls playsInline className="w-full h-full object-cover" />
+                                       </div>
+                                       <button onClick={() => downloadVideo(item.videoUrl!, `video-${item.slug || 'slug'}-${item.uuid.substring(0,8)}.mp4`)} className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5">
+                                         <Download className="w-3.5 h-3.5" /> Baixar MP4 HD
+                                       </button>
+                                     </div>
+                                  )}
+
+                                  {activeTab === 'caption' && (
+                                     <div className="space-y-3 animate-in fade-in duration-300">
+                                       <div className="max-h-48 overflow-y-auto text-[10px] text-zinc-600 dark:text-zinc-300 font-medium whitespace-pre-wrap pr-2 custom-scrollbar">
+                                         {item.captions ? (
+                                           <>
+                                             <p className="font-extrabold text-zinc-800 dark:text-zinc-100 mb-2">{item.tituloOtimizado}</p>
+                                             <p>{item.captions}</p>
+                                             <p className="mt-3 text-indigo-500 dark:text-indigo-400 font-mono text-[9px]">{item.hashtags}</p>
+                                           </>
+                                         ) : <span className="italic text-zinc-400">Nenhuma legenda gerada.</span>}
+                                       </div>
+                                       <button onClick={() => handleCopyText(`${item.captions || ''}\n\n${item.hashtags || ''}`, 'Conteúdo')} className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-1.5">
+                                         <Copy className="w-3.5 h-3.5" /> Copiar Tudo
+                                       </button>
+                                     </div>
+                                  )}
+
+                                  {activeTab === 'publish' && (
+                                     <div className="space-y-3 animate-in fade-in duration-300">
+                                       <div className="grid grid-cols-1 gap-2">
+                                          <button onClick={() => publishToPlatform(item.uuid, 'instagram')} disabled={publishingStatus[item.uuid]?.instagram === 'publishing' || publishingStatus[item.uuid]?.instagram === 'published'} className="w-full py-2 rounded-xl text-[9px] font-bold uppercase transition-all border flex items-center justify-between px-4 bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 disabled:opacity-70">
+                                            <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-pink-500"/> Instagram Reels</span>
+                                            <span>{publishingStatus[item.uuid]?.instagram === 'published' ? '✓ ENVIADO' : publishingStatus[item.uuid]?.instagram === 'publishing' ? 'ENVIANDO...' : 'POSTAR'}</span>
+                                          </button>
+                                          <button onClick={() => publishToPlatform(item.uuid, 'youtube')} disabled={publishingStatus[item.uuid]?.youtube === 'publishing' || publishingStatus[item.uuid]?.youtube === 'published'} className="w-full py-2 rounded-xl text-[9px] font-bold uppercase transition-all border flex items-center justify-between px-4 bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 disabled:opacity-70">
+                                            <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-red-500"/> YouTube Shorts</span>
+                                            <span>{publishingStatus[item.uuid]?.youtube === 'published' ? '✓ ENVIADO' : publishingStatus[item.uuid]?.youtube === 'publishing' ? 'ENVIANDO...' : 'POSTAR'}</span>
+                                          </button>
+                                          <button onClick={() => publishToPlatform(item.uuid, 'facebook')} disabled={publishingStatus[item.uuid]?.facebook === 'publishing' || publishingStatus[item.uuid]?.facebook === 'published'} className="w-full py-2 rounded-xl text-[9px] font-bold uppercase transition-all border flex items-center justify-between px-4 bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 disabled:opacity-70">
+                                            <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500"/> Facebook</span>
+                                            <span>{publishingStatus[item.uuid]?.facebook === 'published' ? '✓ ENVIADO' : publishingStatus[item.uuid]?.facebook === 'publishing' ? 'ENVIANDO...' : 'POSTAR'}</span>
+                                          </button>
+                                       </div>
+                                       <button onClick={() => publishToAllPlatforms(item.uuid)} className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5">
+                                         <Share2 className="w-3.5 h-3.5" /> Disparar em Todos
+                                       </button>
+                                     </div>
+                                  )}
+
+                                  {activeTab === 'schedule' && (
+                                     <div className="space-y-4 animate-in fade-in duration-300">
+                                       <div className="flex flex-col gap-2">
+                                         <label className="text-[9px] font-black uppercase text-zinc-500">Data e Hora (Buffer/Ayrshare)</label>
+                                         <input type="datetime-local" id={`schedule-${item.uuid}`} defaultValue={item.data_agendamento ? new Date(item.data_agendamento).toISOString().substring(0, 16) : ""} className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs outline-none text-zinc-900 dark:text-zinc-100 shadow-inner" />
+                                       </div>
+                                       <button onClick={() => {
+                                         const val = (document.getElementById(`schedule-${item.uuid}`) as HTMLInputElement)?.value;
+                                         if (!val) { alert('Escolha uma data.'); return; }
+                                         handleSchedulePost(item.uuid, val);
+                                       }} className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5">
+                                         <CalendarDays className="w-3.5 h-3.5" /> {item.status_agendamento === 'Agendado' ? 'Atualizar Agendamento' : 'Programar Publicação'}
+                                       </button>
+                                       {item.status_agendamento === 'Agendado' && (
+                                         <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-2 rounded-xl flex items-center gap-2">
+                                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                            <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase">Agendado para {new Date(item.data_agendamento!).toLocaleString()}</span>
+                                         </div>
+                                       )}
+                                     </div>
+                                  )}
+                               </div>
+                            </div>
+                          )}
+
+                        </div>
+                      </div>
+                      );
+                    })}
+                    
+                    {productionItems.length === 0 && (
+                      <div className="text-center py-12">
+                         <Clock className="w-10 h-10 text-zinc-200 mx-auto mb-3" />
+                         <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Aguardando início...</p>
+                      </div>
+                    )}
+                  </div>
+               </section>
+            ) : showConfig ? (
               /* FULL SESSION EDITOR MODE */
               <section className="space-y-6 animate-in fade-in slide-in-from-left-4">
                 <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-4">
@@ -471,6 +1420,45 @@ export default function ProductionStudioPage() {
               /* STANDARD PRODUCTION MODE */
               <>
                 <section className="space-y-6">
+                   <div className="flex bg-zinc-100 dark:bg-zinc-900 rounded-lg p-1">
+                     <button
+                       onClick={() => setDataSource('products')}
+                       className={clsx(
+                         "flex-1 text-[10px] font-black uppercase tracking-widest py-2 rounded-md transition-all",
+                         dataSource === 'products' ? "bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-sm" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                       )}
+                     >
+                       Produtos Reais
+                     </button>
+                     <button
+                       onClick={() => setDataSource('lists')}
+                       className={clsx(
+                         "flex-1 text-[10px] font-black uppercase tracking-widest py-2 rounded-md transition-all",
+                         dataSource === 'lists' ? "bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-sm" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                       )}
+                     >
+                       Listas de Ideação
+                     </button>
+                   </div>
+                   
+                   {dataSource === 'lists' && (
+                     <div className="space-y-2 animate-in slide-in-from-top-2">
+                       <label className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Selecione uma Lista</label>
+                       <select
+                         value={selectedListId}
+                         onChange={(e) => setSelectedListId(e.target.value)}
+                         className="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 text-sm font-medium text-zinc-700 dark:text-zinc-300 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none"
+                       >
+                         <option value="">-- Escolha uma lista gerada --</option>
+                         {productionLists.map(list => (
+                           <option key={list.id} value={list.id}>
+                             {list.name} ({list.items?.length || 0} itens)
+                           </option>
+                         ))}
+                       </select>
+                     </div>
+                   )}
+
                    <AccountSelector onSelect={handleAccountSelect} />
                    <PresetSelector />
                    <PromptEditor />
@@ -567,30 +1555,47 @@ export default function ProductionStudioPage() {
           </div>
 
           {/* Action Footer */}
-          <div className="p-6 bg-white dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800">
+          <div className="p-6 bg-white dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 flex flex-col gap-3">
             <button
-              onClick={handleStartProduction}
-              disabled={isLoading || !activePreset || products.length === 0 || !selectedAccount}
+              onClick={() => handleLoadStagingArea(false)}
+              disabled={
+                isLoading || 
+                !activePreset || 
+                !selectedAccount || 
+                (dataSource === 'products' && products.length === 0) ||
+                (dataSource === 'lists' && !selectedListId)
+              }
               className={`w-full relative group overflow-hidden px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl transition-all flex items-center justify-center gap-3 ${
                 isLoading 
                   ? 'bg-zinc-400 dark:bg-zinc-700 cursor-not-allowed' 
-                  : !activePreset || !selectedAccount
+                  : !activePreset || !selectedAccount || (dataSource === 'products' && products.length === 0) || (dataSource === 'lists' && !selectedListId)
                     ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white hover:-translate-y-1 hover:shadow-emerald-500/40'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white hover:-translate-y-1 hover:shadow-indigo-500/40'
               }`}
             >
               {isLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  {status === 'initializing' ? 'Inicializando...' : 'Processando...'}
+                  Carregando...
                 </>
               ) : (
                 <>
-                  <PlayCircle className="w-5 h-5" />
-                  Iniciar Produção Full
+                  <Package className="w-5 h-5" />
+                  Carregar Lote na Staging Area
                 </>
               )}
             </button>
+
+            {!isLoading && activePreset && selectedAccount && ((dataSource === 'products' && products.length > 0) || (dataSource === 'lists' && selectedListId)) && (
+              <button
+                onClick={() => handleLoadStagingArea(true)}
+                className="w-full px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest border border-indigo-200 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800/30 dark:text-indigo-500 dark:hover:bg-indigo-900/20 transition-all flex items-center justify-center gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                Carregar apenas 1º item para teste
+              </button>
+            )}
+
             {status === 'success' && (
               <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-950 rounded-xl border border-emerald-100 dark:border-emerald-800 flex items-center gap-2 text-emerald-700 dark:text-emerald-400 animate-in slide-in-from-bottom-1">
                  <CheckCircle2 className="w-4 h-4" />
@@ -607,7 +1612,10 @@ export default function ProductionStudioPage() {
         </div>
 
         {/* Main Content: Chat Sandbox */}
-        <div className="flex-1 bg-white dark:bg-zinc-950 flex flex-col overflow-hidden relative">
+        <div className={clsx(
+          "bg-white dark:bg-zinc-950 flex flex-col overflow-hidden relative transition-all duration-500",
+          isChatCollapsed ? "w-0 opacity-0 overflow-hidden pointer-events-none" : "flex-1"
+        )}>
           {!activePreset ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-12 space-y-4">
                <Sparkles className="w-16 h-16 text-zinc-200 dark:text-zinc-800 animate-pulse" />
@@ -635,37 +1643,13 @@ export default function ProductionStudioPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="md:col-span-2">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
                       <ProductSelector 
                         products={products} 
                         onSelect={handleProductSelect} 
                       />
                     </div>
-                    <button
-                      onClick={handleSingleTrigger}
-                      disabled={isSingleLoading || !currentSandboxProduct || !selectedAccount}
-                      className={clsx(
-                        "w-full px-6 py-4 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-3 shadow-xl",
-                        isSingleLoading
-                          ? "bg-zinc-200 text-zinc-400 cursor-not-allowed"
-                          : !currentSandboxProduct
-                            ? "bg-zinc-50 text-zinc-300 cursor-not-allowed border border-dashed border-zinc-200"
-                            : "bg-indigo-600 hover:bg-indigo-700 text-white hover:-translate-y-1 active:scale-95 shadow-indigo-600/20"
-                      )}
-                    >
-                      {isSingleLoading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Reservando ID...
-                        </>
-                      ) : (
-                        <>
-                          <PlayCircle className="w-4 h-4" />
-                          Disparar Unidade
-                        </>
-                      )}
-                    </button>
                   </div>
                   
                   {currentSandboxProduct && (
@@ -678,7 +1662,7 @@ export default function ProductionStudioPage() {
                            <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" /> Canal: {selectedAccount?.nome_conta}
                          </div>
                        </div>
-                       <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-tighter">* Ao disparar, o registro será criado no Sheets automaticamente.</p>
+                       <p className="text-[9px] text-zinc-400 font-bold uppercase tracking-tighter">* O Chat abaixo está configurado com este ID de Post.</p>
                     </div>
                   )}
                </div>
@@ -693,10 +1677,12 @@ export default function ProductionStudioPage() {
                   description="Interface de teste e refinamento de roteiro individual."
                   apiEndpoint="/api/chat/roteirista"
                   icon={<PenTool className="w-5 h-5 text-indigo-500" />}
-                  systemMessage={`${consolidatedSystemMessage}\n\n[CONTEXTO DE PUBLICAÇÃO]\nID Conta: ${selectedAccount?.id_conta}\nChat ID: ${selectedClient?.chat_id}`}
+                  systemMessage={`${consolidatedSystemMessage}\n\n[CONTEXTO DE PUBLICAÇÃO]\nID Post: ${currentSandboxUuid}\nID Conta: ${selectedAccount?.id_conta}\nChat ID: ${selectedClient?.chat_id}`}
                   initialPrompt={activePreset.prompt}
                   inputValue={chatInput}
+                  sessionId={currentSandboxUuid || undefined}
                   onInputChange={setChatInput}
+                  onToolSuccess={handleSandboxToolSuccess}
                 />
                </div>
             </div>

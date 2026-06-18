@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { VideoScene, CarrosselScene, ElevenLabsVoiceSettings, ReplicateConfig, SatoriPayload } from '@/types/content-studio';
-import { PostImage, PostAudio } from '@/services/google-sheets';
+import { PostImage, PostAudio } from '@/services/supabase-service';
 
 export type WorkerStatus = 'idle' | 'waiting' | 'processing' | 'success' | 'error';
 
@@ -26,7 +26,7 @@ interface RenderPayload {
   audio_url: string;
   timestamps_url: string;
   animacao: string;
-  image_reference_url?: string;
+  image_reference_url?: string | string[];
 }
 
 interface ProductionQueueState {
@@ -36,8 +36,8 @@ interface ProductionQueueState {
   
   startProduction: (postId: string, scenes: ProductionScene[], voiceSettings?: ElevenLabsVoiceSettings) => Promise<void>;
   generateAssets: (postId: string, scenes: ProductionScene[], voiceSettings?: ElevenLabsVoiceSettings) => Promise<void>;
-  generateSceneAssets: (postId: string, scene: ProductionScene, voiceSettings?: ElevenLabsVoiceSettings, imageReferenceUrl?: string) => Promise<void>;
-  generateSceneImage: (postId: string, scene: ProductionScene, imageReferenceUrl?: string) => Promise<void>;
+  generateSceneAssets: (postId: string, scene: ProductionScene, voiceSettings?: ElevenLabsVoiceSettings, imageReferenceUrl?: string | string[]) => Promise<void>;
+  generateSceneImage: (postId: string, scene: ProductionScene, imageReferenceUrl?: string | string[]) => Promise<void>;
   generateSceneAudio: (postId: string, scene: ProductionScene, voiceSettings?: ElevenLabsVoiceSettings) => Promise<void>;
   renderScene: (postId: string, scene: ProductionScene, renderData: RenderPayload) => Promise<void>;
   renderAllScenes: (postId: string, scenes: ProductionScene[], allImagens: PostImage[], allAudios: PostAudio[]) => Promise<void>;
@@ -47,11 +47,37 @@ interface ProductionQueueState {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const authHeader = { 'Authorization': 'Bearer RqsEZoRFwm6zW8Rs', 'Content-Type': 'application/json' };
-const WORKER_AUDIO = 'https://n8n.sfaisolutions.com/webhook/fa8faa6a-cd80-42c8-a591-de5ab1312bc9';
-const WORKER_IMAGE = 'https://n8n.sfaisolutions.com/webhook/b0ad003d-54ce-44c9-a143-574f04b24d4a';
-const WORKER_RENDER = 'https://n8n.sfaisolutions.com/webhook/a182e7fd-832f-42a8-9e8d-b404acdac2c9'; 
-const WORKER_FINAL = 'https://n8n.sfaisolutions.com/webhook/2651caa0-5c55-4bda-ac84-bf8d49f07836'; 
+export const resolveReferenceUrls = (
+  usaReferencia?: boolean | null,
+  slugProduto?: string | null,
+  tipoReferencia?: string | null
+): string | string[] | undefined => {
+  if (!usaReferencia || !slugProduto) return undefined;
+  
+  const GCS_BASE_URL = 'https://storage.googleapis.com/cocreator_content';
+  const folder = tipoReferencia === 'embalagem' ? 'embalagem' : 'produtos_reais';
+  
+  const cleanSlugs = slugProduto
+    .replace(/\s+e\s+/gi, ',')
+    .replace(/\s+and\s+/gi, ',')
+    .replace(/;/g, ',')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (cleanSlugs.length === 0) return undefined;
+
+  const urls = cleanSlugs.map(slug => {
+    const hasExtension = /\.(png|jpg|jpeg|webp)$/i.test(slug);
+    const fileName = hasExtension ? slug : `${slug}.png`;
+    return `${GCS_BASE_URL}/${folder}/${fileName}`;
+  });
+
+  return urls.length === 1 ? urls[0] : urls;
+};
+
+const authHeader = { 'Content-Type': 'application/json' };
+const PROXY_WORKER = '/api/worker'; 
 
 export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
   isProcessing: false,
@@ -61,6 +87,7 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
   reset: () => set({ isProcessing: false, activePostId: null, progress: {} }),
 
   generateSceneImage: async (postId, scene, imageReferenceUrl) => {
+    console.log('[Queue] 🖼 Generating Scene Image:', { postId, sceneNumero: scene.numero });
     const n = scene.numero;
     const videoScene = scene as VideoScene;
     const carrosselScene = scene as CarrosselScene;
@@ -77,18 +104,48 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
     }));
 
     try {
-      await fetch(WORKER_IMAGE, {
+      // Build payload_replicate to send a ready-to-use Replicate body to n8n
+      let payloadReplicate: Record<string, any> | undefined = undefined;
+      if (!isCarrossel && videoScene.replicate) {
+        
+        // 1. Sanitização Universal: Se o LLM ou o banco gerou image_input como string pura, forçar para Array.
+        if (typeof videoScene.replicate.input?.image_input === 'string') {
+          videoScene.replicate.input.image_input = [videoScene.replicate.input.image_input];
+        }
+
+        const inputCopy = { ...videoScene.replicate.input };
+        
+        // 2. Sobrescrever com a referência manual do Estúdio (se houver)
+        if (imageReferenceUrl) {
+          inputCopy.image_input = Array.isArray(imageReferenceUrl)
+            ? imageReferenceUrl
+            : [imageReferenceUrl];
+        } else if (!inputCopy.image_input || (Array.isArray(inputCopy.image_input) && inputCopy.image_input.length === 0)) {
+          // Se não tem referência NENHUMA (nem do estúdio nem da IA), remove o campo para não bugar o Replicate
+          delete inputCopy.image_input;
+        }
+
+        payloadReplicate = {
+          input: inputCopy
+        };
+      }
+
+      const response = await fetch(PROXY_WORKER, {
         method: 'POST',
         headers: authHeader,
         body: JSON.stringify({ 
+          type: 'image',
           id_post: postId, 
+          id_cena: (scene as any /* eslint-disable-line @typescript-eslint/no-explicit-any */).id_cena,
           numero_cena: n, 
           replicate: videoScene.replicate,
           payload_api: carrosselScene.payload_api,
           is_carrossel: !!isCarrossel,
-          image_reference_url: imageReferenceUrl // Pass the resolved GCS URL
+          image_reference_url: imageReferenceUrl, // Pass the resolved GCS URL
+          payload_replicate: payloadReplicate // Flat Replicate payload for n8n
         })
       });
+      console.log('[Queue] 🖼 Image Gen Request Sent:', response.status);
       set(state => ({ progress: { ...state.progress, [n]: { ...state.progress[n], image: 'success' } } }));
     } catch (err) {
       console.error(`Image Gen Error ${n}:`, err);
@@ -97,9 +154,13 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
   },
 
   generateSceneAudio: async (postId, scene, voiceSettings) => {
+    console.log('[Queue] 🎙 Generating Scene Audio:', { postId, sceneNumero: scene.numero });
     const n = scene.numero;
     const texto_narrado = (scene as VideoScene).texto_narrado;
-    if (!texto_narrado) return;
+    if (!texto_narrado) {
+      console.warn('[Queue] 🎙 Missing texto_narrado for scene', n);
+      return;
+    }
 
     set(state => ({ 
       progress: { 
@@ -121,11 +182,12 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
     };
 
     try {
-      await fetch(WORKER_AUDIO, {
+      const response = await fetch(PROXY_WORKER, {
         method: 'POST',
         headers: authHeader,
-        body: JSON.stringify({ id_post: postId, numero_cena: n, texto_narrado, voice_settings: finalVoiceSettings })
+        body: JSON.stringify({ type: 'audio', id_post: postId, id_cena: (scene as any /* eslint-disable-line @typescript-eslint/no-explicit-any */).id_cena, numero_cena: n, texto_narrado, voice_settings: finalVoiceSettings })
       });
+      console.log('[Queue] 🎙 Audio Gen Request Sent:', response.status);
       set(state => ({ progress: { ...state.progress, [n]: { ...state.progress[n], audio: 'success' } } }));
     } catch (err) {
       console.error(`Audio Gen Error ${n}:`, err);
@@ -153,14 +215,11 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
       for (const scene of scenes) {
         // Resolve reference URL if needed
         const videoScene = scene as VideoScene;
-        let refUrl = undefined;
-        if (videoScene.usa_referencia && videoScene.slug_produto) {
-          const GCS_BASE_URL = 'https://storage.googleapis.com/cocreator_content';
-          const folder = videoScene.tipo_referencia === 'embalagem' ? 'embalagem' : 'produtos_reais';
-          const slug = videoScene.slug_produto.split(',')[0].trim();
-          const fileName = slug.includes('.') ? slug : `${slug}.png`;
-          refUrl = `${GCS_BASE_URL}/${folder}/${fileName}`;
-        }
+        const refUrl = resolveReferenceUrls(
+          videoScene.usa_referencia,
+          videoScene.slug_produto,
+          videoScene.tipo_referencia
+        );
 
         await state.generateSceneAudio(postId, scene, voiceSettings);
         await sleep(2000);
@@ -188,11 +247,13 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
 
     try {
       // Triggering rebuild with this comment - Ensure all assets are passed to n8n
-      await fetch(WORKER_RENDER, {
+      await fetch(PROXY_WORKER, {
         method: 'POST',
         headers: authHeader,
         body: JSON.stringify({ 
+          type: 'render',
           id_post: postId, 
+          id_cena: (scene as any /* eslint-disable-line @typescript-eslint/no-explicit-any */).id_cena,
           numero_cena: n, 
           action: 'render_scene',
           ...renderData
@@ -219,14 +280,11 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
       const sceneAud = allAudios.find(aud => Number(aud.numero_cena) === n);
       
       const videoScene = scene as VideoScene;
-      let refUrl = undefined;
-      if (videoScene.usa_referencia && videoScene.slug_produto) {
-        const GCS_BASE_URL = 'https://storage.googleapis.com/cocreator_content';
-        const folder = videoScene.tipo_referencia === 'embalagem' ? 'embalagem' : 'produtos_reais';
-        const slug = videoScene.slug_produto.split(',')[0].trim();
-        const fileName = slug.includes('.') ? slug : `${slug}.png`;
-        refUrl = `${GCS_BASE_URL}/${folder}/${fileName}`;
-      }
+      const refUrl = resolveReferenceUrls(
+        videoScene.usa_referencia,
+        videoScene.slug_produto,
+        videoScene.tipo_referencia
+      );
 
       const renderData: RenderPayload = {
         image_url: sceneImg?.image_url || '',
@@ -252,10 +310,10 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
     set({ isProcessing: true });
     try {
       await sleep(8000);
-      await fetch(WORKER_FINAL, {
+      await fetch(PROXY_WORKER, {
         method: 'POST',
         headers: authHeader,
-        body: JSON.stringify({ id_post: postId, video_urls, action: 'compile_final' })
+        body: JSON.stringify({ type: 'final', id_post: postId, video_urls, action: 'compile_final' })
       });
       alert('Compilação final iniciada!');
     } catch (err) {

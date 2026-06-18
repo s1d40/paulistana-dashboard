@@ -11,16 +11,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientId: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     }),
-    // Adicionar um provedor de credenciais fake apenas para desenvolvimento local
-    ...(isDev ? [
+    // Adicionar um provedor de credenciais fake para desenvolvimento ou se o Google não estiver configurado
+    ...(isDev || !process.env.GOOGLE_CLIENT_ID ? [
       Credentials({
         id: "dev-login",
-        name: "Desenvolvimento",
+        name: "Login de Desenvolvimento",
         credentials: {},
         async authorize() {
           return { 
             id: "dev-user", 
-            name: "Dev User", 
+            name: "Equipe Paulistana", 
             email: "sidnei@sfaisolutions.com" 
           };
         },
@@ -30,7 +30,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async signIn({ user, account }) {
       // Se for o login de dev, permite sempre
-      if (isDev && account?.provider === "dev-login") {
+      if (account?.provider === "dev-login") {
         return true;
       }
 

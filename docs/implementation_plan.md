@@ -1,62 +1,83 @@
-# Arquitetura de Conversão e Qualificação de Leads (Mercado Livre)
+# Plano de Implementação: Refinamento da Esteira de Produção e Postagem Automática
 
-Pivot do sistema de orquestração de IA: transição de uma estratégia de viralização orgânica (focada em métricas de vaidade) para um **Funil de Vendas Automatizado e Orientado a Dados**. O sistema central continuará sendo orquestrado primariamente via n8n, integrando APIs externas de Inteligência Artificial, Meta Graph API e Mercado Livre.
+Este plano propõe refinar o fluxo de produção em massa e postagem no **Cocreator Dashboard**, habilitando a geração automatizada de captions e hashtags pelo Agente de Ideação, persistência no Supabase e uma interface aprimorada com recursos de download individual/em massa, publicação direta em 3 redes e agendamento sequencial inteligente.
+
+---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> Aprovação de Arquitetura: Por favor, revise este documento arquitetural. Precisaremos tomar algumas decisões sobre infraestrutura, principalmente detalhando como gerenciaremos os acessos à Meta Graph API e quais produtos entrarem no MVP (Minimum Viable Product).
+> **Fluxo de Postagem Multi-Canal:** Atualmente, a API de publicação (`/api/content/publish`) dispara posts para redes específicas. Implementaremos um disparador paralelo para publicar nas três plataformas (Instagram, Facebook, YouTube Shorts) em lote ou por post individual, utilizando a conta vinculada no painel lateral.
 
-## Visão Geral do Sistema (Microserviços Orquestrados)
-
-O projeto será dividido em 3 módulos assíncronos e integráveis, rodando sobre fluxos de trabalho do n8n.
-
----
-
-### Módulo 1: Motor de Conteúdo Orientado a Buscas (Social SEO)
-**Objetivo:** Eliminar a aleatoriedade da geração de conteúdo focando em intenções de busca claras.
-
-*   **Trigger (Agendamento Cron):** Ex: Semanal/Diário.
-*   **Etapa 1 - Ingestão de Tendências:** Requisição a uma API de tendências (ex: Google Trends, ou web scraping interno de palavras-chave no ML) usando termos semente ("insônia natural", "imunidade", "suplemento energia").
-*   **Etapa 2 - Processamento LLM:** A IA recebe as palavras em alta e converte nas 3 maiores "dores" do cliente.
-*   **Etapa 3 - Geração de Roteiro Constraint-Based:** Cria roteiros com estrutura rígida (Problema > Solução > CTA: "Comenta EU QUERO para o link").
-*   **Etapa 4 - Renderização e Post:** Envio das diretrizes para os motores de vídeo/imagem do sistema legou para renderizar o post.
+> [!TIP]
+> **Agendamento Sequencial Inteligente (Automático):** Para facilitar a distribuição, incluiremos uma funcionalidade de "Agendamento Automático" que distribuirá todos os vídeos da lista de forma linear (ex: 1 por dia, 2 por dia, etc.) a partir da data de início selecionada.
 
 ---
 
-### Módulo 2: Automação de Resgate e Redirecionamento (SAC via DM)
-**Objetivo:** Romper o atrito da plataforma e direcionar o tráfego organicamente e de forma escalável para o anúncio no Mercado Livre.
+## Proposed Changes
 
-*   **Trigger (Webhook Instagram/Meta):** O n8n fica na escuta ("listening") para novos comentários nas publicações da conta conectada.
-*   **Etapa 1 - Classificação de Intenção (Filtro):** Usa Regex ou uma chamada LLM leve/rápida para classificar a intenção: `É uma dúvida técnica?` vs `É intenção de compra?` (ex: "qual o preço", "eu quero", "link").
-*   **Etapa 2 - Resposta Pública (Meta API):** n8n envia payload para curtir o comentário do usuário e responder publicamente: `"Oi! Te mandei o link com todos os detalhes no seu direct! 📥"`
-*   **Etapa 3 - Envio da DM (Meta API):** Envio da Mensagem Direta contendo a Copy de vendas e o [Link UTM Parametrizado] diretamente para o checkout do ML.
+### Frontend & BFF API Components
+
+#### [MODIFY] [route.ts](file:///home/sid/cocreator-n8n/dashboard/src/app/api/production/route.ts)
+- Atualizar a ação `init_post` para receber os parâmetros `captions` e `hashtags` do corpo da requisição (`body`).
+- Adicionar os campos `captions` e `hashtags` no objeto `postToUpsert` antes de salvar/atualizar no Supabase.
+
+#### [MODIFY] [page.tsx](file:///home/sid/cocreator-n8n/dashboard/src/app/ideacao/page.tsx)
+- Modificar a constante `DEFAULT_IDEATION_PROMPT` para instruir explicitamente o Agente de Ideação a gerar também `titulo_otimizado`, `captions` e `hashtags` em cada item da lista.
+- O formato do item no array `items` da ferramenta `save_ideation_list` passará a conter:
+  - `tema` (tema do vídeo)
+  - `prompt` (diretrizes do roteiro)
+  - `titulo_otimizado` (título chamativo de até 100 caracteres)
+  - `captions` (legenda persuasiva e limpa)
+  - `hashtags` (5 a 10 hashtags estratégicas)
+
+#### [MODIFY] [chat-panel.tsx](file:///home/sid/cocreator-n8n/dashboard/src/components/chat-panel.tsx)
+- Adicionar no listener do chat uma verificação para a string `"✅ Lista de produção gerada e salva com sucesso."`.
+- Ao detectar essa frase (retornada pelo Agente de Ideação após persistir no banco), disparar `onToolSuccess('save_ideation_list')` para garantir feedback adequado no dashboard de ideacão.
+
+#### [MODIFY] [page.tsx](file:///home/sid/cocreator-n8n/dashboard/src/app/production/page.tsx)
+- **Modelos e Estados:**
+  - Adicionar as propriedades `tituloOtimizado`, `captions` e `hashtags` no tipo/interface `ProductionItem`.
+- **Orquestração da Fila Sequencial:**
+  - Ao carregar itens da lista de ideação (`dataSource === 'lists'`), ler `titulo_otimizado`, `captions` e `hashtags` de cada item e salvá-los no estado do `ProductionItem`.
+  - Na ação de `init_post` do loop sequencial, enviar `captions` e `hashtags` da lista de ideação (com fallback/mesclagem para o roteiro gerado caso existam novos dados).
+  - No `polling` em tempo real de produção, carregar os campos `captions`, `hashtags` e `titulo_post` do `livePost` e atualizar o estado do `productionItems`.
+- **Funcionalidades de Ação Individual por Card:**
+  - Quando um post estiver `Pronto` (`status === 'Pronto'`), expandir a UI do card para mostrar:
+    - Um player ou preview de vídeo (aspecto elegante com bordas arredondadas).
+    - **Visualizador de Legendas & Tags:** Bloco de texto exibindo a caption e as hashtags geradas, com botões para copiar com um clique ou editar inline.
+    - **Botão Baixar (Download):** Botão estilizado com ícone que baixa o arquivo `.mp4` diretamente como um Blob (evitando que abra em nova aba).
+    - **Botão Publicar 3 Canais:** Publica o vídeo gerado de forma imediata e paralela no Instagram, Facebook e YouTube usando a conta selecionada.
+    - **Botão Agendar:** Seletor de data/hora inline simples e interativo para agendar o post individual.
+- **Painel de Ações em Massa (Bulk Actions):**
+  - Adicionar no cabeçalho do monitor de produção controles globais quando houver vídeos prontos:
+    - **Baixar Todos os Vídeos:** Dispara o download sequencial seguro de todos os vídeos finalizados na lista.
+    - **Publicar Lote Completo:** Dispara publicação paralela de todos os posts prontos nas três redes.
+    - **Agendar Automaticamente (Massa):** Painel compacto com seletor de "Data de Início" e "Frequência" (ex: 1 post/dia, 2 posts/dia, 3 posts/dia). Calcula sequencialmente e salva no Supabase o agendamento de todos os itens prontos da lista em massa.
+
+### Specifications & n8n Tool Configurations
+
+#### [MODIFY] [IDEATION_AGENT_SPEC.md](file:///home/sid/cocreator-n8n/dashboard/IDEATION_AGENT_SPEC.md)
+- Atualizar a definição do schema da ferramenta `save_ideation_list` para incluir `titulo_otimizado`, `captions` e `hashtags` como propriedades obrigatórias do array `items`.
+- Ajustar as instruções do agente de ideação (`System Prompt Injection`) para exigir explicitamente que o LLM crie títulos otimizados, legendas persuasivas e hashtags estratégicas na chamada da ferramenta.
+
+#### [MODIFY] [TOOL_DEFINIR_METADADOS.md](file:///home/sid/cocreator-n8n/docs/TOOL_DEFINIR_METADADOS.md)
+- Incluir o campo `hashtags` na descrição da ferramenta `Definir_Metadados_Post` do Agente Arquiteto/Roteirista no n8n.
+- Atualizar a query SQL correspondente no sub-workflow do n8n para atualizar a coluna `hashtags` na tabela `posts` (adicionalmente à `titulo_post`, `tema_post` e `captions`).
 
 ---
-
-### Módulo 3: Fábrica de Criativos A/B (Para Meta/TikTok Ads)
-**Objetivo:** Criação em lote (Batch Creation) alterando poucas variáveis, focando no Custo de Aquisição de Clientes (CAC) de anúncios.
-
-*   **Trigger (Manual ou Webhook):** Entrada da URL de um produto campeão do Mercado Livre.
-*   **Etapa 1 - Extração:** Scrape básico da descrição e benefícios do produto.
-*   **Etapa 2 - Geração Fatorial (LLM):** A partir das informações do produto, a IA deve formular 1 corpo de roteiro, porém acoplado a **5 a 10 ganchos (hooks) iniciais** completamente diferentes (Ex: Curiosidade, Alerta, Tutorial, Prova Social).
-*   **Etapa 3 - Fila de Renderização (Queue):** n8n orquestra o envio dessas 10 combinações para o serviço de renderização de imagem/vídeo.
-*   **Etapa 4 - Exportação Estruturada:** Salva os materiais em uma pasta no Google Drive atrelado a um Google Sheet e CSV com formato ideal para **Meta Ads Bulk Import**.
-
----
-
-## Open Questions
-
-> [!WARNING]
-> Precisamos resolver os seguintes pontos antes do desenvolvimento técnico inicial no n8n:
-> 
-> 1.  **MVP (Minimum Viable Product):** Quais são os 3 produtos naturais com maior margem/conversão da sua loja que servirão como base para nosso primeiro teste desta estrutura?
-> 2.  **Acessos Meta:** A conta do Instagram do nicho e a página do Facebook já estão configuradas como "Conta Profissional/Business"? Você possui acesso ao portal Meta for Developers para cadastrarmos o app do n8n (para poder enviar direct messages via sistema)?
-> 3.  **Links e UTMs:** Usaremos algum formato específico para rastreamento dos cliques (ex: subdomínio próprio redirecionando pro ML) ou o próprio painel do ML consegue medir as visitas que chegam dos nossos links caso tenham parâmetros como `?utm_source=instagram_dm`?
 
 ## Verification Plan
 
-Para assegurar que o plano atenderá a nova estratégia, as seguintes validações deverão ocorrer na primeira Itens do Sprint:
-
-*   **Validação Módulo 2:** Conectaremos somente o webhook do Instagram em uma conta de teste, faremos um comentário "eu quero" com conta pessoal e validaremos if o webhook aciona e a DM chega em menos de 10 segundos.
-*   **Validação Link ML:** Garantiremos que o "deep link" funciona corretamente nativo no smartphone abrindo o app do Mercado Livre (se instalado), ao invés da web view (que requer login e diminui a conversão).
+### Automated & Manual Verification
+1. **Geração de Ideias no Ideation Studio:**
+   - Acessar `/ideacao` e testar a geração de uma nova pauta.
+   - Verificar se as pautas salvas contêm as propriedades `titulo_otimizado`, `captions` e `hashtags` no array JSON da tabela `production_lists`.
+2. **Esteira de Produção:**
+   - Acessar `/production`, selecionar a lista de ideação recém-criada e iniciar a produção.
+   - Confirmar se o `init_post` insere o post com a legenda e as hashtags pré-geradas no banco de dados Supabase.
+3. **Validação da UI de Ações no Monitor:**
+   - Aguardar a finalização dos vídeos e verificar os cards na aba do monitor.
+   - Clicar em "Copiar Legenda" e testar a cópia.
+   - Clicar em "Baixar Vídeo" e garantir que o download seja disparado no navegador com o nome do produto/tema correspondente.
+   - Testar o painel de "Agendamento Automático em Massa" definindo um espaçamento de posts de 24 horas a partir de amanhã. Verificar no Supabase ou na tela `/cronograma` se as datas e horas foram calculadas e salvas perfeitamente.

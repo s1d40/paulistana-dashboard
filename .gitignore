@@ -49,3 +49,7 @@ dashboard/out/
 # Gemini CLI
 .gemini/
 MEMORY.md
+*.db
+*.sqlite*
+*.zip
+*_unzipped/

@@ -49,16 +49,20 @@ ID DA CONFIGURAÇÃO (PK): ${active_preset_id}
 3. 'Salvar_Novo_Preset': Para criar templates.
 4. 'Gerenciar_Sessoes_Customizadas': Para CRIAR novas sessões/cards ou remover sessões existentes.
 
-[FLUXO E ORDEM DE EXECUÇÃO DAS FERRAMENTAS]
-É crucial que você siga a ordem lógica correta ao atender o usuário:
-- Se o usuário pedir para alterar ou preencher algo que JÁ EXISTE nas sessões da Bancada de Trabalho: Use 'Atualizar_Card' diretamente.
-- Se o usuário pedir algo NOVO que NÃO ESTÁ PRESENTE nas sessões atuais (ex: "adicione uma CTA", "crie uma aba de restrições"):
-  1º. Use a ferramenta 'Gerenciar_Sessoes_Customizadas' (ação 'create') para CRIAR a nova sessão.
-  2º. DEPOIS de criar a sessão, use a ferramenta 'Atualizar_Card' para povoar a sessão recém-criada com as informações corretas.
+[FLUXO E ORDEM DE EXECUÇÃO DAS FERRAMENTAS - CRÍTICO]
+Você DEVE SEMPRE executar as ferramentas ANTES de responder ao usuário por texto. Sua resposta deve ser apenas uma confirmação técnica do que foi feito.
 
-[REGRAS]
+Regras de Ouro:
+1. Se o usuário pedir algo NOVO (ex: "adicione uma CTA", "crie uma aba de hashtags", "adicione uma restrição"):
+   - 1º PASSO: Use 'Gerenciar_Sessoes_Customizadas' com ação 'create' para criar o card.
+   - 2º PASSO: Use 'Atualizar_Card' para preencher o conteúdo.
+2. Se o usuário pedir para alterar algo que já está visível na Bancada:
+   - Use 'Atualizar_Card' diretamente.
+
+[REGRAS DE RESPOSTA]
+- Nunca diga "vou fazer", faça e diga "feito".
 - Proibido gerar roteiros ou JSON no chat.
-- Execute a ferramenta assim que decidir um parâmetro.
+- Sua resposta deve ser curta e objetiva.
 - Utilize o UUID ${active_preset_id} em todas as chamadas.
     `.trim();
 
@@ -102,50 +106,169 @@ const cockpitPreview = [
       sessions_snapshot: current_sessions
     };
 
-    const response = await fetch(N8N_DIRECTOR_WEBHOOK, {
+    const payloadBody = {
+      message: messages[messages.length - 1].content,
+      history: messages.slice(0, -1),
+      session_id: session_id,
+      id_post: session_id,
+      // Enviar o modelo do arquiteto para o n8n mapear no nó da IA
+      model: architect_model || 'models/gemini-3.1-pro-preview', 
+      system_message: fullSystemMessage, 
+      agent_config: agentConfig,
+      system_context: {
+        id_post: session_id,
+        active_preset_id: active_preset_id,
+        track: track,
+        instructions: `[SISTEMA: Você é o Arquiteto. Sua missão é povoar o Cockpit acima. ID do Preset: ${active_preset_id}]`
+      }
+    };
+
+    let response = await fetch(N8N_DIRECTOR_WEBHOOK, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.N8N_API_TOKEN}`,
       },
-      body: JSON.stringify({
-        message: messages[messages.length - 1].content,
-        history: messages.slice(0, -1),
-        session_id: session_id,
-        id_post: session_id,
-        // Enviar o modelo do arquiteto para o n8n mapear no nó da IA
-        model: architect_model || 'models/gemini-3.1-pro-preview', 
-        system_message: fullSystemMessage, 
-        agent_config: agentConfig,
-        system_context: {
-          id_post: session_id,
-          active_preset_id: active_preset_id,
-          track: track,
-          instructions: `[SISTEMA: Você é o Arquiteto. Sua missão é povoar o Cockpit acima. ID do Preset: ${active_preset_id}]`
-        }
-      }),
+      body: JSON.stringify(payloadBody),
     });
 
+    // SELF-HEALING LOGIC FOR 404 STATUS (deactivated or relocated n8n webhook)
+    if (response.status === 404) {
+      console.warn('[Director API] n8n webhook returned 404. Attempting self-healing...');
+      const API_KEY = process.env.N8N_API_TOKEN || 'RqsEZoRFwm6zW8Rs';
+      const BASE_URL = 'https://n8n.sfaisolutions.com/api/v1';
+      
+      try {
+        const listRes = await fetch(`${BASE_URL}/workflows`, {
+          headers: {
+            'X-N8N-API-KEY': API_KEY,
+            'Accept': 'application/json'
+          }
+        });
+
+        if (listRes.ok) {
+          const listData = await listRes.json();
+          const workflows = listData.data;
+          
+          if (workflows && Array.isArray(workflows)) {
+            // Find a workflow whose name contains "Director", "Arquiteto", or "Roteiro"
+            const targetWf = workflows.find((wf: any) => 
+              wf.name.toLowerCase().includes("director") || 
+              wf.name.toLowerCase().includes("arquiteto") || 
+              wf.name.toLowerCase().includes("roteiro")
+            );
+
+            if (targetWf) {
+              console.log(`[Self-Heal] Found matching workflow: "${targetWf.name}" (ID: ${targetWf.id}, Active: ${targetWf.active})`);
+
+              // Fetch details to extract webhook UUID
+              const detailsRes = await fetch(`${BASE_URL}/workflows/${targetWf.id}`, {
+                headers: {
+                  'X-N8N-API-KEY': API_KEY,
+                  'Accept': 'application/json'
+                }
+              });
+
+              if (detailsRes.ok) {
+                const wfDetails = await detailsRes.json();
+                const webhookNode = wfDetails.nodes?.find((n: any) => n.type === 'n8n-nodes-base.webhook');
+
+                if (webhookNode) {
+                  const webhookId = webhookNode.webhookId;
+                  const customPath = webhookNode.parameters?.path;
+                  const finalPath = customPath || webhookId;
+
+                  if (finalPath) {
+                    const dynamicWebhookUrl = `https://n8n.sfaisolutions.com/webhook/${finalPath}`;
+                    console.log(`[Self-Heal] Discovered webhook URL: ${dynamicWebhookUrl}`);
+
+                    // If workflow is inactive, activate it
+                    if (!targetWf.active) {
+                      console.log(`[Self-Heal] Workflow is inactive. Attempting to activate...`);
+                      const activateRes = await fetch(`${BASE_URL}/workflows/${targetWf.id}/activate`, {
+                        method: 'POST',
+                        headers: {
+                          'X-N8N-API-KEY': API_KEY,
+                          'Accept': 'application/json'
+                        }
+                      });
+
+                      if (activateRes.ok) {
+                        console.log('[Self-Heal] Successfully activated workflow via POST /activate');
+                      } else {
+                        // Alternate PATCH activation
+                        const patchRes = await fetch(`${BASE_URL}/workflows/${targetWf.id}`, {
+                          method: 'PATCH',
+                          headers: {
+                            'X-N8N-API-KEY': API_KEY,
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                          },
+                          body: JSON.stringify({ active: true })
+                        });
+                        if (patchRes.ok) {
+                          console.log('[Self-Heal] Successfully activated workflow via PATCH');
+                        }
+                      }
+                      
+                      // Wait brief moment for n8n's routing table reload
+                      await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+
+                    // Retry original webhook call
+                    console.log(`[Self-Heal] Retrying original call to newly discovered URL: ${dynamicWebhookUrl}`);
+                    const retryRes = await fetch(dynamicWebhookUrl, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${process.env.N8N_API_TOKEN}`,
+                      },
+                      body: JSON.stringify(payloadBody),
+                    });
+
+                    if (retryRes.ok) {
+                      console.log('[Self-Heal] Retry succeeded! Restored communication.');
+                      response = retryRes;
+                    } else {
+                      console.error(`[Self-Heal] Retry failed with status ${retryRes.status}`);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Self-Heal] Error in self-healing routine:', err);
+      }
+    }
 
     if (!response.ok) {
-      throw new Error('Falha na comunicação com o Cocreator Intelligence no n8n.');
+      const errorText = await response.text();
+      console.error('[Director API] n8n failed with status:', response.status, 'body:', errorText);
+      throw new Error(`Falha na comunicação com o Cocreator Intelligence no n8n. Status: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('[Director API] n8n Response:', JSON.stringify(data, null, 2));
+    let parsedData = data;
+    if (typeof data === 'string') {
+      try { parsedData = JSON.parse(data); } catch(e) {}
+    }
+    
+    console.log('[Director API] n8n Response:', JSON.stringify(parsedData, null, 2));
 
     // Se o n8n retornar um roteiro (identificado pela presença de 'tipo_post')
-    if (data.tipo_post) {
+    if (parsedData.tipo_post) {
       return NextResponse.json({ 
         tool_call: 'generate_script', 
-        script: data 
+        script: parsedData 
       });
     }
 
     // Caso contrário, retorna a mensagem de texto normal do chat
     return NextResponse.json({ 
       role: 'assistant', 
-      content: data.output || data.message || 'Desculpe, não consegui processar sua solicitação.' 
+      content: parsedData.output || parsedData.message || (typeof data === 'string' ? data : 'Desculpe, não consegui processar sua solicitação.')
     });
 
   } catch (error: unknown) {

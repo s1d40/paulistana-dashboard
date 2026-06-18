@@ -36,12 +36,15 @@ export interface ChatPanelProps {
   systemMessage?: string;
   initialPrompt?: string;
   inputValue?: string;
+  sessionId?: string;
+  metadata?: Record<string, any>;
   onInputChange?: (val: string) => void;
+  onToolSuccess?: (toolName: string) => void;
 }
 
 export default function ChatPanel({ 
   title, description, apiEndpoint, icon, systemMessage, initialPrompt,
-  inputValue, onInputChange 
+  inputValue, sessionId: externalSessionId, metadata, onInputChange, onToolSuccess
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [internalInput, setInternalInput] = useState('');
@@ -52,7 +55,8 @@ export default function ChatPanel({
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
-  const [sessionId] = useState(() => `session-${Math.random().toString(36).substring(2, 10)}`);
+  const [internalSessionId] = useState(() => `session-${Math.random().toString(36).substring(2, 10)}`);
+  const activeSessionId = externalSessionId || internalSessionId;
   const [activeView, setActiveView] = useState<'chat' | 'gallery'>('chat');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -150,9 +154,10 @@ export default function ChatPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message: userMessage, 
-          sessionId, 
+          sessionId: activeSessionId, 
           attachments: currentAttachments,
-          systemMessage, // Pass the consolidated system message
+          systemMessage,
+          ...metadata // Spread additional metadata into the root payload
         }),
       });
 
@@ -200,26 +205,46 @@ export default function ChatPanel({
             }
             
             if (textToAppend || newAttachments.length > 0) {
-               setMessages((prev) => prev.map(m => 
-                 m.id === assistantMessageId 
-                  ? { 
+               setMessages((prev) => prev.map(m => {
+                 if (m.id === assistantMessageId) {
+                   const newContent = m.content + textToAppend;
+                   
+                   // Check for Sandbox Agent Tool Success Magic String
+                   if (onToolSuccess && newContent.includes("✅ Roteiro gerado e salvo com sucesso!") && !m.content.includes("✅ Roteiro gerado e salvo com sucesso!")) {
+                     onToolSuccess('save_single_script');
+                   }
+                   if (onToolSuccess && newContent.includes("✅ Lista de produção gerada e salva com sucesso.") && !m.content.includes("✅ Lista de produção gerada e salva com sucesso.")) {
+                     onToolSuccess('save_ideation_list');
+                   }
+
+                   return { 
                       ...m, 
-                      content: m.content + textToAppend,
+                      content: newContent,
                       attachments: m.attachments ? [...m.attachments, ...newAttachments] : (newAttachments.length > 0 ? newAttachments : undefined)
-                    } 
-                  : m
-               ));
+                    };
+                 }
+                 return m;
+               }));
             }
           }
         }
       } else {
         const data = await res.json();
+        const contentStr = data.output || data.response || data.message || (typeof data === 'string' ? data : 'OK');
+        
+        if (onToolSuccess && contentStr.includes("✅ Roteiro gerado e salvo com sucesso!")) {
+           onToolSuccess('save_single_script');
+        }
+        if (onToolSuccess && contentStr.includes("✅ Lista de produção gerada e salva com sucesso.")) {
+           onToolSuccess('save_ideation_list');
+        }
+        
         setMessages((prev) => [
           ...prev, 
           { 
             id: (Date.now() + 1).toString(), 
             role: 'assistant', 
-            content: data.output || data.response || data.message || (typeof data === 'string' ? data : 'OK'),
+            content: contentStr,
             attachments: data.attachments
           }
         ]);

@@ -49,6 +49,7 @@ Este documento consolida as próximas etapas prioritárias para a evolução do 
     - [x] **Esteira de Produção:** Implementada interface de produção em massa com separação de System Message e Prompt de Campanha.
     - [x] **Chat com Roteirista:** Criada página dedicada para refinamento de roteiros em tempo real.
     - [x] **Renderização Direta:** Botão "Render" integrado na biblioteca para acionar o video_maker.py via n8n.
+    - [x] **Mural de Ideias (Trello-style):** Implementado sistema de board interativo com drag-and-drop persistente e edição inline.
 - [ ] **Edição por Plataforma (Abas de Detalhes):**
     - Aba Instagram: Editor de legenda com quebra de linha e sugestão de hashtags.
     - Aba YouTube Shorts: SEO focado em Título (max 100 caracteres) e Tags.
@@ -67,5 +68,7 @@ Este documento consolida as próximas etapas prioritárias para a evolução do 
 
 ## Próximas Ações Imediatas
 1. **Instagram:** Auditoria no Meta for Developers para validar por que o webhook de mensagens não está chegando no n8n.
-2. **TikTok:** Iniciar o cadastro do App na plataforma de desenvolvedores.
-3. **Dashboard:** Implementar as abas de edição específica por rede social no `<PostDetailModal />`.
+2. **Board:** Monitorar performance do arraste com muitos cards e implementar sistema de tags coloridas (UI).
+3. **TikTok:** Iniciar o cadastro do App na plataforma de desenvolvedores.
+4. **Dashboard:** Implementar as abas de edição específica por rede social no `<PostDetailModal />`.
+

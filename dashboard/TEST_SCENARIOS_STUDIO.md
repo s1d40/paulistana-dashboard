@@ -65,5 +65,7 @@ Este documento descreve os cenários de teste para validar a inteligência do Ag
 
 | ID | Cenário | Falha Observada | Gravidade |
 |----|---------|-----------------|-----------|
-| 01 | | | |
-| 02 | | | |
+| 01 | Histórico de Render | O Editor exibia o vídeo compilado mais antigo em vez do mais recente, devido à falta de ordenação descendente (`data_compilacao`) dos dados do Supabase. (Corrigido) | Alta |
+| 02 | Parsing N8N LLM | Retorno de JSON envelopado em Markdown (````json````) quebrava a resposta HTTP da API Next.js. Sanatização Regex via `.text()` implementada. (Corrigido) | Alta |
+| 03 | Botão Gerar Roteiro | Botão inativo silenciosamente se não houvesse mensagens no chat ou se não houvesse Preset ativo. Travas removidas para permitir Geração Instantânea via Cockpit. (Corrigido) | Média |
+| 04 | Slugs/Produtos Reais | O Agente alucinava nomes de slugs (ex: `cebola-crispy`), gerando "produtos fantasmas" no Select e quebrando URLs do GCS na hora de renderizar. Instaurado uso forçado do dropdown oficial. (Mitigado) | Média |

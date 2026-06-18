@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { CarrosselScript } from '@/types/content-studio';
 import { ChevronLeft, ChevronRight, Sparkles, Loader2 } from 'lucide-react';
-import { PostImage } from '@/services/google-sheets';
+import { PostImage } from '@/services/supabase-service';
 import { useProductionQueue } from '@/store/production-queue';
 import { useParams } from 'next/navigation';
 import clsx from 'clsx';

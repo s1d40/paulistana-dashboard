@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  LayoutDashboard, 
+import {
+  LayoutDashboard,
   Settings,
   FileText,
   Images,
@@ -15,14 +15,16 @@ import {
   ChevronRight,
   KanbanSquare,
   LogOut,
-  Calendar
-} from 'lucide-react';
-import clsx from 'clsx';
+  Calendar,
+  Lightbulb,
+  TrendingUp
+} from 'lucide-react';import clsx from 'clsx';
 import { useState } from 'react';
 import { signOut } from 'next-auth/react';
 
 const mainNavigation = [
   { name: 'Visão Geral', href: '/', icon: LayoutDashboard },
+  { name: 'Inteligência ML', href: '/mercado-livre', icon: TrendingUp },
   { name: 'Mural de Ideias', href: '/board', icon: KanbanSquare },
   { name: 'Cronograma', href: '/cronograma', icon: Calendar },
 ];
@@ -31,7 +33,8 @@ const contentNavigation = [
   { name: 'Estúdio (IA)', href: '/conteudo/novo', icon: PlayCircle },
   { name: 'Biblioteca', href: '/conteudo', icon: FileText },
   { name: 'Social Hub', href: '/conteudo/publicar', icon: Share2 },
-  { name: 'Esteira em Massa', href: '/production', icon: PlayCircle },
+  { name: 'Produção em Massa (Criar Listas)', href: '/ideacao', icon: Lightbulb },
+  { name: 'Produção em Massa (Produzir Vídeos)', href: '/production', icon: PlayCircle },
 ];
 
 const assetNavigation = [

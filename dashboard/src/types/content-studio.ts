@@ -14,6 +14,7 @@ export interface ReplicateConfig {
 }
 
 export interface VideoScene {
+  id_cena?: string; // UUID of the scene for tracking generated assets
   numero: number;
   modelo_ia: string; // Display name
   replicate?: ReplicateConfig; // Detailed API config

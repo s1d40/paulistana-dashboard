@@ -16,6 +16,7 @@ This project is organized into several key modules:
 
 ## 🚀 Key Features
 
+- **Interactive Team Board**: Trello-style board for idea management with persistent reordering and real-time sync.
 - **Live Cockpit**: Interactive chat for drafting content scripts with real-time feedback.
 - **n8n Integration**: Event-driven production pipeline triggered by dashboard actions.
 - **Asset Sync**: Automatic synchronization between Google Cloud Storage, Pinecone (vector search), and Supabase.

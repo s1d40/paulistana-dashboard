@@ -22,7 +22,7 @@ interface PostDetailModalProps {
   onClose: () => void;
 }
 
-type TabType = 'overview' | 'studio' | 'instagram' | 'youtube' | 'publish';
+type TabType = 'overview' | 'studio' | 'instagram' | 'youtube' | 'publish' | 'schedule';
 
 export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailModalProps) {
   const router = useRouter();
@@ -32,6 +32,7 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [isPublishing, setIsPublishing] = useState<string | null>(null);
+  const [scheduleDate, setScheduleDate] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -47,7 +48,6 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
   const [hashtags, setHashtags] = useState('');
   const [ytTitle, setYtTitle] = useState('');
   const [ytDescription, setYtDescription] = useState('');
-  const [scheduleDate, setScheduleDate] = useState<string>('');
   const [ytTags, setYtTags] = useState('');
 
   const handlePublish = async (platform: string) => {
@@ -73,6 +73,42 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
     } catch (err) {
       console.error(err);
       alert(`Erro ao publicar no ${platform}`);
+    } finally {
+      setIsPublishing(null);
+    }
+  };
+
+  const handleSchedule = async (platform: string) => {
+    if (!selectedAccount) {
+      alert('Selecione uma conta primeiro');
+      return;
+    }
+    if (!scheduleDate) {
+      alert('Selecione uma data e horário primeiro');
+      return;
+    }
+
+    const confirmSchedule = confirm(`Deseja agendar este post para ${new Date(scheduleDate).toLocaleString()}?`);
+    if (!confirmSchedule) return;
+
+    setIsPublishing(platform);
+    try {
+      const res = await fetch('/api/content/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          postId,
+          accountId: selectedAccount.id_conta,
+          platform,
+          scheduled_for: scheduleDate
+        }),
+      });
+
+      if (!res.ok) throw new Error('Falha no agendamento');
+      alert(`Agendamento enviado para ${platform} com sucesso!`);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao agendar');
     } finally {
       setIsPublishing(null);
     }
@@ -138,6 +174,14 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
 
   const handleDuplicateToArchitect = async () => {
     if (!postId) return;
+
+    // Se o post ainda não tem roteiro (está em branco/draft inicial), apenas volte para o chat
+    if (!details?.post?.roteiro_gerado || details.post.roteiro_gerado.trim() === '' || details.post.roteiro_gerado === '{}') {
+      onClose();
+      router.push(`/conteudo/chat?id_post=${postId}`);
+      return;
+    }
+
     const proceed = confirm('Deseja criar um novo rascunho em branco para gerar uma nova versão com o Arquiteto? O post atual continuará salvo na sua biblioteca intacto.');
     if (!proceed) return;
 
@@ -188,6 +232,7 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
     { id: 'studio', label: 'Estúdio IA', icon: Monitor },
     { id: 'instagram', label: 'Instagram', icon: Camera },
     { id: 'youtube', label: 'Youtube', icon: Video },
+    { id: 'schedule', label: 'Agendar', icon: CalendarDays },
     { id: 'publish', label: 'Publicar', icon: Share2 },
   ];
 
@@ -221,9 +266,9 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
               <div className="flex gap-2 mr-4 border-r border-zinc-800/50 pr-4">
                 <button 
                   onClick={handleDuplicateToArchitect}
-                  disabled={isDuplicating || isSaving || loading}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 border border-indigo-500/20"
-                  title="Voltar para o Arquiteto e gerar uma nova versão limpa"
+                  disabled={isDuplicating || isSaving || loading || !details?.has_preset}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 border border-indigo-500/20 disabled:cursor-not-allowed"
+                  title={details?.has_preset ? "Voltar para o Arquiteto e gerar uma nova versão usando este roteiro como base" : "Este post não possui configurações de IA salvas para serem copiadas"}
                 >
                   {isDuplicating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bot className="w-3.5 h-3.5" />}
                   Novo Roteiro
@@ -373,56 +418,44 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
                         <Sparkles className="w-4 h-4 text-orange-500" /> Kit de Publicação Rápida
                       </h4>
 
-                      {/* Agendamento de Post */}
-                      <div className="flex items-center gap-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-2xl shadow-inner group">
-                        <div className="flex items-center gap-2">
-                           <CalendarDays className={clsx("w-4 h-4", scheduleDate ? "text-indigo-400" : "text-zinc-600")} />
-                           <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Agendar:</span>
-                        </div>
-                        <input 
-                          type="datetime-local" 
-                          value={scheduleDate}
-                          onChange={(e) => setScheduleDate(e.target.value)}
-                          className="bg-transparent border-none text-[10px] font-bold text-zinc-300 outline-none focus:ring-0 cursor-pointer"
-                        />
-                        {scheduleDate && (
-                          <div className="flex items-center gap-1.5 px-2 py-1 bg-indigo-500/10 border border-indigo-500/20 rounded-lg animate-in fade-in zoom-in">
-                            <div className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse" />
-                            <span className="text-[8px] font-black uppercase text-indigo-400">Pendente</span>
-                          </div>
-                        )}
-                      </div>
+                      {/* Removido o Agendamento daqui para a aba Agendar */}
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="p-6 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl space-y-4 relative group">
+                      <div className="p-6 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl space-y-4 relative group focus-within:border-orange-500/30 transition-all duration-300">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Legenda Final</span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 group-focus-within:text-orange-500 transition-colors">Legenda Final</span>
                           <button 
                             onClick={() => copyToClipboard(caption, 'caption')}
-                            className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400 hover:text-white"
+                            className="p-2 hover:bg-zinc-800/50 rounded-lg transition-colors text-zinc-400 hover:text-white"
                           >
                             {copiedField === 'caption' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
                           </button>
                         </div>
-                        <p className="text-sm text-zinc-400 line-clamp-4 leading-relaxed italic">
-                          {caption || 'Nenhuma legenda gerada.'}
-                        </p>
+                        <textarea
+                          value={caption}
+                          onChange={(e) => setCaption(e.target.value)}
+                          className="w-full h-36 bg-transparent border-none text-sm text-zinc-300 leading-relaxed outline-none focus:ring-0 resize-none placeholder:text-zinc-700 custom-scrollbar"
+                          placeholder="Digite a legenda personalizada para esta publicação..."
+                        />
                       </div>
 
-                      <div className="p-6 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl space-y-4 relative group">
+                      <div className="p-6 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl space-y-4 relative group focus-within:border-orange-500/30 transition-all duration-300">
                         <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Hashtags Estratégicas</span>
+                          <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 group-focus-within:text-orange-500 transition-colors">Hashtags Estratégicas</span>
                           <button 
                             onClick={() => copyToClipboard(hashtags, 'hashtags')}
-                            className="p-2 hover:bg-zinc-800 rounded-lg transition-colors text-zinc-400 hover:text-white"
+                            className="p-2 hover:bg-zinc-800/50 rounded-lg transition-colors text-zinc-400 hover:text-white"
                           >
                             {copiedField === 'hashtags' ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
                           </button>
                         </div>
-                        <p className="text-sm text-indigo-400/80 font-mono tracking-tight line-clamp-4">
-                          {hashtags || '#cocreator #inteligenciaartificial #conteudo'}
-                        </p>
+                        <textarea
+                          value={hashtags}
+                          onChange={(e) => setHashtags(e.target.value)}
+                          className="w-full h-36 bg-transparent border-none text-sm text-indigo-400 font-mono tracking-tight outline-none focus:ring-0 resize-none placeholder:text-zinc-700 custom-scrollbar"
+                          placeholder="#branding #fitness #lifestyle"
+                        />
                       </div>
                     </div>
                   </div>
@@ -623,37 +656,58 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                     {[
-                       { id: 'instagram', label: 'Instagram', icon: Camera, color: 'text-pink-500', bg: 'bg-pink-500/10', border: 'border-pink-500/20' },
-                       { id: 'facebook', label: 'Facebook', icon: Globe, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
-                       { id: 'youtube', label: 'YouTube', icon: Video, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/20' },
-                     ].map((plat) => (
-                       <button
-                         key={plat.id}
-                         onClick={() => handlePublish(plat.id)}
-                         disabled={!!isPublishing}
-                         className={clsx(
-                           "flex flex-col items-center p-8 rounded-[2rem] border transition-all relative overflow-hidden group",
-                           plat.bg, plat.border,
-                           isPublishing === plat.id ? "animate-pulse" : "hover:scale-105 active:scale-95"
-                         )}
-                       >
-                         <plat.icon className={clsx("w-10 h-10 mb-4 transition-transform group-hover:scale-110 duration-500", plat.color)} />
-                         <span className={clsx("text-xs font-black uppercase tracking-widest", plat.color)}>Publicar no {plat.label}</span>
-                         
-                         {isPublishing === plat.id && (
-                           <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-sm">
-                              <Loader2 className="w-6 h-6 animate-spin text-white" />
-                           </div>
-                         )}
+                     {(() => {
+                        const hasCaptions = !!details?.post?.captions;
+                        const hasHashtags = !!details?.post?.hashtags;
+                        const hasVideo = !!details?.videos && details.videos.length > 0 && !!details.videos[0].video_final_url;
+                        const isReady = hasCaptions && hasHashtags && hasVideo;
+                        return [
+                          { id: 'instagram', label: 'Instagram', icon: Camera, color: 'text-pink-500', bg: 'bg-pink-500/10', border: 'border-pink-500/20' },
+                          { id: 'facebook', label: 'Facebook', icon: Globe, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+                          { id: 'youtube', label: 'YouTube', icon: Video, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+                        ].map((plat) => (
+                          <div key={plat.id} className="relative group">
+                            <div
+                              className={clsx(
+                                "w-full flex flex-col items-center p-6 rounded-[2rem] border transition-all relative overflow-hidden",
+                                plat.bg, plat.border,
+                                isPublishing === plat.id ? "animate-pulse" : (isReady && selectedAccount ? "" : "opacity-40 grayscale")
+                              )}
+                            >
+                              <plat.icon className={clsx("w-8 h-8 mb-4 transition-transform group-hover:scale-110 duration-500", plat.color)} />
+                              
+                              <div className="flex flex-col gap-2 w-full mt-2">
+                                <button
+                                  onClick={() => handlePublish(plat.id)}
+                                  disabled={!!isPublishing || !isReady || !selectedAccount}
+                                  className={clsx("w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md bg-zinc-900/50 hover:bg-zinc-800 disabled:cursor-not-allowed", plat.color)}
+                                >
+                                  Publicar Agora
+                                </button>
+                              </div>
 
-                         {!selectedAccount && (
-                            <div className="absolute inset-0 bg-zinc-950/20 cursor-not-allowed flex items-center justify-center">
-                               <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600 bg-zinc-900 px-3 py-1 rounded-full border border-zinc-800">Selecione uma conta</span>
+                              {isPublishing === plat.id && (
+                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-sm z-10">
+                                   <Loader2 className="w-6 h-6 animate-spin text-white" />
+                                </div>
+                              )}
                             </div>
-                         )}
-                       </button>
-                     ))}
+
+                            {/* Tooltip de Erro/Bloqueio */}
+                            {(!isReady || !selectedAccount) && (
+                               <div className="absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full w-48 p-3 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-2">Requisitos Pendentes:</p>
+                                  <div className="space-y-1.5">
+                                     {!selectedAccount && <div className="flex items-center gap-2 text-orange-500"><div className="w-1 h-1 bg-current rounded-full" /><span className="text-[8px] font-bold">Selecionar Conta</span></div>}
+                                     {!hasCaptions && <div className="flex items-center gap-2 text-red-500"><div className="w-1 h-1 bg-current rounded-full" /><span className="text-[8px] font-bold">Gerar Legenda</span></div>}
+                                     {!hasHashtags && <div className="flex items-center gap-2 text-red-500"><div className="w-1 h-1 bg-current rounded-full" /><span className="text-[8px] font-bold">Gerar Hashtags</span></div>}
+                                     {!hasVideo && <div className="flex items-center gap-2 text-red-500"><div className="w-1 h-1 bg-current rounded-full" /><span className="text-[8px] font-bold">Finalizar Vídeo</span></div>}
+                                  </div>
+                               </div>
+                            )}
+                          </div>
+                        ));
+                     })()}
                   </div>
 
                   <div className="p-8 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl flex items-center justify-between backdrop-blur-sm">
@@ -666,12 +720,125 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
                            <p className="text-[10px] text-zinc-500">Enviar simultaneamente para todas as plataformas configuradas.</p>
                         </div>
                      </div>
-                     <button 
-                        disabled={!selectedAccount || !!isPublishing}
-                        className="px-6 py-3 bg-zinc-800 hover:bg-white hover:text-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-20 shadow-xl"
-                      >
-                        Disparar Broadcast
-                     </button>
+                     <div className="flex flex-col sm:flex-row gap-3">
+
+                       <button 
+                          onClick={() => handlePublish('all')}
+                          disabled={!selectedAccount || !!isPublishing || !details?.post?.captions || !details?.post?.hashtags || !details?.videos?.[0]?.video_final_url}
+                          className="px-6 py-3 bg-zinc-800 hover:bg-white hover:text-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-20 shadow-xl flex items-center gap-2"
+                        >
+                          {isPublishing === 'all' && <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-500" />}
+                          {isPublishing === 'all' ? 'Disparando...' : 'Disparar Broadcast'}
+                       </button>
+                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* --- TAB: SCHEDULE --- */}
+              {activeTab === 'schedule' && (
+                <div className="max-w-4xl mx-auto space-y-12 py-6">
+                  <div className="space-y-6">
+                    <div className="flex flex-col items-center gap-4 text-center">
+                       <div className="w-16 h-16 bg-zinc-900 border border-indigo-500/50 rounded-[1.5rem] flex items-center justify-center shadow-xl shadow-indigo-500/20">
+                          <CalendarDays className="w-8 h-8 text-indigo-500" />
+                       </div>
+                       <div className="space-y-1">
+                          <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter">Central de Agendamento</h3>
+                          <p className="text-zinc-500 text-xs font-medium uppercase tracking-widest">Defina a data e programe seus posts</p>
+                       </div>
+                    </div>
+                    
+                    <div className="max-w-md mx-auto space-y-6">
+                       <div className="p-6 bg-zinc-900/50 border border-indigo-500/30 rounded-[2rem] flex flex-col items-center gap-4">
+                         <span className="text-xs font-black uppercase tracking-widest text-indigo-400">Data e Hora do Post</span>
+                         <input 
+                           type="datetime-local" 
+                           value={scheduleDate}
+                           onChange={(e) => setScheduleDate(e.target.value)}
+                           className="w-full bg-black/50 border border-zinc-800 rounded-xl px-4 py-3 text-sm font-bold text-white outline-none focus:border-indigo-500 transition-colors cursor-pointer text-center"
+                         />
+                       </div>
+                       <AccountSelector onSelect={(acc) => setSelectedAccount(acc)} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                     {(() => {
+                        const hasCaptions = !!details?.post?.captions;
+                        const hasHashtags = !!details?.post?.hashtags;
+                        const hasVideo = !!details?.videos && details.videos.length > 0 && !!details.videos[0].video_final_url;
+                        const isReady = hasCaptions && hasHashtags && hasVideo && scheduleDate;
+                        return [
+                          { id: 'instagram', label: 'Instagram', icon: Camera, color: 'text-pink-500', bg: 'bg-pink-500/10', border: 'border-pink-500/20' },
+                          { id: 'facebook', label: 'Facebook', icon: Globe, color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+                          { id: 'youtube', label: 'YouTube', icon: Video, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+                        ].map((plat) => (
+                          <div key={plat.id} className="relative group">
+                            <div
+                              className={clsx(
+                                "w-full flex flex-col items-center p-6 rounded-[2rem] border transition-all relative overflow-hidden",
+                                plat.bg, plat.border,
+                                isPublishing === plat.id ? "animate-pulse" : (isReady && selectedAccount ? "" : "opacity-40 grayscale")
+                              )}
+                            >
+                              <plat.icon className={clsx("w-8 h-8 mb-4 transition-transform group-hover:scale-110 duration-500", plat.color)} />
+                              
+                              <div className="flex flex-col gap-2 w-full mt-2">
+                                <button
+                                  onClick={() => handleSchedule(plat.id)}
+                                  disabled={!!isPublishing || !isReady || !selectedAccount}
+                                  className={clsx("w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md bg-zinc-900/50 hover:bg-zinc-800 disabled:cursor-not-allowed", plat.color)}
+                                >
+                                  Agendar
+                                </button>
+                              </div>
+
+                              {isPublishing === plat.id && (
+                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-sm z-10">
+                                   <Loader2 className="w-6 h-6 animate-spin text-white" />
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Tooltip de Erro/Bloqueio */}
+                            {(!isReady || !selectedAccount) && (
+                               <div className="absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full w-48 p-3 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400 mb-2">Requisitos Pendentes:</p>
+                                  <div className="space-y-1.5">
+                                     {!scheduleDate && <div className="flex items-center gap-2 text-indigo-500"><div className="w-1 h-1 bg-current rounded-full" /><span className="text-[8px] font-bold">Definir Data</span></div>}
+                                     {!selectedAccount && <div className="flex items-center gap-2 text-orange-500"><div className="w-1 h-1 bg-current rounded-full" /><span className="text-[8px] font-bold">Selecionar Conta</span></div>}
+                                     {!hasCaptions && <div className="flex items-center gap-2 text-red-500"><div className="w-1 h-1 bg-current rounded-full" /><span className="text-[8px] font-bold">Gerar Legenda</span></div>}
+                                     {!hasHashtags && <div className="flex items-center gap-2 text-red-500"><div className="w-1 h-1 bg-current rounded-full" /><span className="text-[8px] font-bold">Gerar Hashtags</span></div>}
+                                     {!hasVideo && <div className="flex items-center gap-2 text-red-500"><div className="w-1 h-1 bg-current rounded-full" /><span className="text-[8px] font-bold">Finalizar Vídeo</span></div>}
+                                  </div>
+                               </div>
+                            )}
+                          </div>
+                        ));
+                     })()}
+                  </div>
+
+                  <div className="p-8 bg-zinc-900/30 border border-zinc-800/50 rounded-3xl flex items-center justify-between backdrop-blur-sm">
+                     <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-zinc-900 rounded-xl flex items-center justify-center border border-zinc-800">
+                           <CalendarDays className="w-5 h-5 text-indigo-500" />
+                        </div>
+                        <div>
+                           <h4 className="text-xs font-black text-white uppercase tracking-widest">Agendamento em Massa</h4>
+                           <p className="text-[10px] text-zinc-500">Programar simultaneamente para todas as plataformas.</p>
+                        </div>
+                     </div>
+                     <div className="flex flex-col sm:flex-row gap-3">
+                       <button 
+                          onClick={() => handleSchedule('all')}
+                          disabled={!selectedAccount || !!isPublishing || !details?.post?.captions || !details?.post?.hashtags || !details?.videos?.[0]?.video_final_url || !scheduleDate}
+                          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-20 shadow-xl flex items-center gap-2"
+                        >
+                          {isPublishing === 'all' && <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />}
+                          Agendar Broadcast
+                       </button>
+                     </div>
                   </div>
                 </div>
               )}

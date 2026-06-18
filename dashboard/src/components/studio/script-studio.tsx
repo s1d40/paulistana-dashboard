@@ -11,8 +11,7 @@ import { VideoStudio } from './video-studio';
 import { CarrosselStudio } from './carrossel-studio';
 import { BlogStudio } from './blog-studio';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { PostImage, PostAudio, PostVideoCena, PostVideo } from '@/services/google-sheets';
-import { ContentPost, Account } from '@/services/supabase-service';
+import { ContentPost, Account, PostImage, PostAudio, PostVideoCena, PostVideo } from '@/services/supabase-service';
 
 interface ScriptStudioProps {
   rawJson: string;
@@ -24,6 +23,8 @@ interface ScriptStudioProps {
   videos?: PostVideo[];
   accounts?: Account[];
   onPublish?: (id_conta: string) => void;
+  onSchedule?: (id_conta: string, date: string) => void;
+  onRefresh?: () => void;
 }
 
 type ScriptData = VideoScript | CarrosselScript | BlogScript;
@@ -37,7 +38,9 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   videos_cenas = [],
   videos = [],
   accounts = [],
-  onPublish
+  onPublish,
+  onSchedule,
+  onRefresh
 }) => {
   // Debug prop delivery
   console.log('[ScriptStudio] Prop Update:', {
@@ -116,6 +119,8 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
         videos={videos}
         accounts={accounts}
         onPublish={onPublish}
+        onSchedule={onSchedule}
+        onRefresh={onRefresh}
       />
     );
   }

@@ -19,6 +19,16 @@ export default function TimelineEditorPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const { generateAssets, renderAllScenes, compileFinalVideo, isProcessing } = useProductionQueue();
   const [automationState, setAutomationState] = useState<'idle' | 'waiting_assets' | 'waiting_scenes'>('idle');
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Clear save timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const loadAccounts = async () => {
@@ -35,8 +45,23 @@ export default function TimelineEditorPage() {
     console.log(`[Editor] isProcessing changed: ${isProcessing}`);
   }, [isProcessing]);
 
+  // Keep a ref of details to avoid stale closure in realtime listeners
+  const detailsRef = useRef(details);
+  useEffect(() => {
+    detailsRef.current = details;
+  }, [details]);
+
+  const extendedPollingCounterRef = useRef(0);
+
   const refreshAssets = useCallback(async (source: string) => {
     console.log(`[Editor] 🔄 Refreshing assets triggered by: ${source} at ${new Date().toLocaleTimeString()}`);
+    
+    // Reset extended polling counter to 100 iterations (5 minutes / 300 seconds) on any manual/event action
+    if (source !== 'polling_extended' && source !== 'polling_active_production') {
+      console.log('[Editor] 🚀 Resetting extended polling counter to 100 (5 minutes of active polling)...');
+      extendedPollingCounterRef.current = 100;
+    }
+
     try {
       const data = await fetchPostDetails(id as string);
       console.log(`[Editor] ✅ New details fetched:`, {
@@ -90,20 +115,52 @@ export default function TimelineEditorPage() {
     const assetsChannel = supabase
       .channel(`assets_sync_${id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'imagens' }, (p) => {
-        const targetId = (p.new as { id_post: string })?.id_post || (p.old as { id_post: string })?.id_post;
-        if (targetId === id) refreshAssets('imagens_event');
+        const oldImg = p.old as { id_imagem?: string; id_post?: string };
+        const newImg = p.new as { id_post?: string };
+        const targetId = newImg?.id_post || oldImg?.id_post;
+        if (targetId === id) {
+          refreshAssets('imagens_event');
+        } else if (p.eventType === 'DELETE' && oldImg?.id_imagem) {
+          const currentImgs = detailsRef.current?.imagens || [];
+          const wasDeleted = currentImgs.some(img => (img as any).id_imagem === oldImg.id_imagem);
+          if (wasDeleted) refreshAssets('imagens_event_delete');
+        }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'audios' }, (p) => {
-        const targetId = (p.new as { id_post: string })?.id_post || (p.old as { id_post: string })?.id_post;
-        if (targetId === id) refreshAssets('audios_event');
+        const oldAud = p.old as { id_audio?: string; id_post?: string };
+        const newAud = p.new as { id_post?: string };
+        const targetId = newAud?.id_post || oldAud?.id_post;
+        if (targetId === id) {
+          refreshAssets('audios_event');
+        } else if (p.eventType === 'DELETE' && oldAud?.id_audio) {
+          const currentAuds = detailsRef.current?.audios || [];
+          const wasDeleted = currentAuds.some(aud => aud.id_audio === oldAud.id_audio);
+          if (wasDeleted) refreshAssets('audios_event_delete');
+        }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'videos_cenas' }, (p) => {
-        const targetId = (p.new as { id_post: string })?.id_post || (p.old as { id_post: string })?.id_post;
-        if (targetId === id) refreshAssets('videos_cenas_event');
+        const oldVC = p.old as { id?: string; id_post?: string };
+        const newVC = p.new as { id_post?: string };
+        const targetId = newVC?.id_post || oldVC?.id_post;
+        if (targetId === id) {
+          refreshAssets('videos_cenas_event');
+        } else if (p.eventType === 'DELETE' && oldVC?.id) {
+          const currentVCs = detailsRef.current?.videos_cenas || [];
+          const wasDeleted = currentVCs.some(vc => vc.id === oldVC.id);
+          if (wasDeleted) refreshAssets('videos_cenas_event_delete');
+        }
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'videos' }, (p) => {
-        const targetId = (p.new as { id_post: string })?.id_post || (p.old as { id_post: string })?.id_post;
-        if (targetId === id) refreshAssets('final_video_event');
+        const oldVid = p.old as { id_video_final?: string; id_post?: string };
+        const newVid = p.new as { id_post?: string };
+        const targetId = newVid?.id_post || oldVid?.id_post;
+        if (targetId === id) {
+          refreshAssets('final_video_event');
+        } else if (p.eventType === 'DELETE' && oldVid?.id_video_final) {
+          const currentVids = detailsRef.current?.videos || [];
+          const wasDeleted = currentVids.some(v => v.id_video_final === oldVid.id_video_final);
+          if (wasDeleted) refreshAssets('final_video_event_delete');
+        }
       })
       .subscribe((status) => {
         console.log(`[Realtime] Assets channel status: ${status}`);
@@ -120,16 +177,15 @@ export default function TimelineEditorPage() {
   useEffect(() => {
     if (!id) return;
 
-    let extendedPollingCounter = 0;
     const pollingInterval = setInterval(() => {
       // Poll if actively processing OR for 30 seconds after it finishes
       if (isProcessingRef.current) {
-        extendedPollingCounter = 10; // Reset to 10 iterations (30s)
+        extendedPollingCounterRef.current = 10; // Reset to 10 iterations (30s)
         console.log('[Editor] Polling assets during production...');
         refreshAssets('polling_active_production');
-      } else if (extendedPollingCounter > 0) {
-        extendedPollingCounter--;
-        console.log(`[Editor] Polling assets (EXTENDED MODE - ${extendedPollingCounter} left)...`);
+      } else if (extendedPollingCounterRef.current > 0) {
+        extendedPollingCounterRef.current--;
+        console.log(`[Editor] Polling assets (EXTENDED MODE - ${extendedPollingCounterRef.current} left)...`);
         refreshAssets('polling_extended');
       }
     }, 3000); // More aggressive polling (3s)
@@ -176,9 +232,12 @@ export default function TimelineEditorPage() {
         setAutomationState('idle');
         const proceed = confirm('Todas as cenas foram renderizadas! Deseja compilar o vídeo final agora?');
         if (proceed) {
-          const urls = (details.videos_cenas || [])
-            .sort((a, b) => a.numero_cena - b.numero_cena)
-            .map(v => v.video_url);
+          const urls = scenes
+            .map((scene: { numero: number }) => {
+              const v = details.videos_cenas?.find(vc => Number(vc.numero_cena) === Number(scene.numero));
+              return v?.video_url;
+            })
+            .filter(Boolean) as string[];
           compileFinalVideo(id as string, urls).catch(err => {
              console.error(err);
              alert('Erro ao iniciar compilação.');
@@ -188,6 +247,13 @@ export default function TimelineEditorPage() {
     }
   }, [details, automationState, id, renderAllScenes, compileFinalVideo]);
 
+  const invalidateFinalVideo = async () => {
+    if (id) {
+      const { error } = await supabase.from('videos').delete().eq('id_post', id as string);
+      if (error) console.error('[Editor] Error deleting final video:', error);
+    }
+  };
+
   const handleGenerateAssets = async () => {
     if (!details?.post?.roteiro_gerado) return;
     
@@ -195,6 +261,7 @@ export default function TimelineEditorPage() {
     if (!confirmGen) return;
 
     try {
+      await invalidateFinalVideo();
       const script = JSON.parse(details.post.roteiro_gerado);
       await generateAssets(id as string, script.cenas, script.voice_settings);
     } catch {
@@ -218,6 +285,7 @@ export default function TimelineEditorPage() {
     if (missingAssets) {
       const shouldGenAssets = confirm('Faltam assets para algumas cenas. Deseja gerar os assets que faltam antes de renderizar as cenas?');
       if (shouldGenAssets) {
+        await invalidateFinalVideo();
         await generateAssets(id as string, scenes, script.voice_settings);
         // We don't chain automatically here because asset generation is async and takes time
         alert('Geração de assets iniciada. Aguarde a conclusão para renderizar as cenas.');
@@ -229,6 +297,7 @@ export default function TimelineEditorPage() {
     }
 
     try {
+      await invalidateFinalVideo();
       await renderAllScenes(id as string, scenes, details.imagens, details.audios);
     } catch {
       alert('Erro ao iniciar renderização das cenas.');
@@ -281,9 +350,12 @@ export default function TimelineEditorPage() {
       return;
     }
 
-    const urls = (details.videos_cenas || [])
-      .sort((a, b) => a.numero_cena - b.numero_cena)
-      .map(v => v.video_url);
+    const urls = scenes
+      .map((scene: { numero: number }) => {
+        const v = details.videos_cenas?.find(vc => Number(vc.numero_cena) === Number(scene.numero));
+        return v?.video_url;
+      })
+      .filter(Boolean) as string[];
     
     if (urls.length === 0) {
       alert('Nenhum fragmento de vídeo encontrado para compilar.');
@@ -308,16 +380,15 @@ export default function TimelineEditorPage() {
     if (!confirmPublish) return;
 
     try {
-      const response = await fetch('https://n8n.sfaisolutions.com/webhook/81b0dbd8-a5cb-4e78-ad11-e0b025ab25f5', {
+      const response = await fetch('/api/content/publish', {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer RqsEZoRFwm6zW8Rs'
         },
-        body: JSON.stringify({ 
-          id_post: id,
-          id_conta: id_conta,
-          action: 'publish_post'
+        body: JSON.stringify({
+          postId: id,
+          accountId: id_conta,
+          platform: 'all'
         }),
       });
 
@@ -329,6 +400,41 @@ export default function TimelineEditorPage() {
     } catch (err) {
       console.error(err);
       alert("Falha ao disparar o webhook de publicação.");
+    }
+  };
+
+  const handleSchedule = async (id_conta: string, date: string) => {
+    if (!id) return;
+    if (!id_conta) {
+      alert("Por favor, selecione uma conta para agendar.");
+      return;
+    }
+    if (!date) {
+      alert("Por favor, selecione uma data e horário.");
+      return;
+    }
+
+    const confirmSchedule = confirm(`Deseja agendar este post para ${new Date(date).toLocaleString()}?`);
+    if (!confirmSchedule) return;
+
+    try {
+      const { error } = await supabase
+        .from('posts')
+        .update({
+          agendado: date,
+          status: 'Agendado'
+        })
+        .eq('id_post', id);
+
+      if (!error) {
+        alert("Post agendado com sucesso! O robô publicará na data configurada.");
+        window.location.reload();
+      } else {
+        throw error;
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao agendar o post.");
     }
   };
 
@@ -356,6 +462,13 @@ export default function TimelineEditorPage() {
 
   const handleDuplicateToArchitect = async () => {
     if (!id) return;
+    
+    // Se o post ainda não tem roteiro (está em branco/draft inicial), apenas volte para o chat
+    if (!details?.post?.roteiro_gerado || details.post.roteiro_gerado.trim() === '' || details.post.roteiro_gerado === '{}') {
+      router.push(`/conteudo/chat?id_post=${id}`);
+      return;
+    }
+
     const proceed = confirm('Deseja criar um novo rascunho em branco para gerar uma nova versão com o Arquiteto? O post atual continuará salvo na sua biblioteca intacto.');
     if (!proceed) return;
 
@@ -479,7 +592,10 @@ export default function TimelineEditorPage() {
             videos={details.videos}
             accounts={accounts}
             onPublish={handlePublish}
-            onSave={(json) => {              // Local update only, persistence happens on Save button
+            onSchedule={handleSchedule}
+            onRefresh={() => refreshAssets('manual_delete')}
+            onSave={(json) => {
+              // Update local state immediately for snappy UI responsiveness
               setDetails((prev) => {
                 if (!prev || !prev.post) return prev;
                 return {
@@ -487,6 +603,22 @@ export default function TimelineEditorPage() {
                   post: { ...prev.post, roteiro_gerado: json }
                 };
               });
+
+              // Debounce Supabase persistence to prevent overloading database while typing
+              if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+              }
+              saveTimeoutRef.current = setTimeout(async () => {
+                console.log('[Editor] 💾 Auto-saving script to database...');
+                try {
+                  await updatePostInSupabase(id as string, { 
+                    roteiro_gerado: json
+                  });
+                  console.log('[Editor] 💾 Auto-saved successfully!');
+                } catch (err) {
+                  console.error('[Editor] ❌ Auto-save failed:', err);
+                }
+              }, 1000);
             }}
           />
         )}
