@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
 export async function POST(req: NextRequest) {
   try {
@@ -8,23 +9,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Post ID é obrigatório' }, { status: 400 });
     }
 
-    // Webhook placeholder para disparar o Render de Vídeo (video_maker.py no servidor)
-    const N8N_RENDER_WEBHOOK_URL = 'https://n8n.sfaisolutions.com/webhook/render-video-placeholder';
+    // Ao invés de usar n8n, apenas mudamos o status para "Produzir".
+    // O Worker Python rodando em background (worker.py) capturará isso e processará.
+    const { error } = await supabase
+      .from('posts')
+      .update({ status: 'Produzir' })
+      .eq('id_post', postId);
 
-    const response = await fetch(N8N_RENDER_WEBHOOK_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.N8N_API_TOKEN}`,
-      },
-      body: JSON.stringify({ post_id: postId, action: 'render_full_video' }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Falha ao disparar render no n8n: ${response.status}`);
+    if (error) {
+      throw error;
     }
 
-    return NextResponse.json({ message: 'Renderização iniciada! O vídeo aparecerá na biblioteca em breve.' });
+    return NextResponse.json({ message: 'Renderização iniciada pelo Worker! O vídeo aparecerá na biblioteca em breve.' });
   } catch (error) {
     console.error('Render API Error:', error);
     return NextResponse.json({ error: 'Erro ao iniciar renderização.' }, { status: 500 });

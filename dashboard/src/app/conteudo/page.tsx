@@ -583,7 +583,7 @@ function ConteudoContent() {
                     </div>
 
                     {/* Card Footer Actions */}
-                    <div className="p-5 bg-zinc-950/40 mt-auto border-t border-zinc-850 flex justify-between items-center flex-shrink-0">
+                    <div className="p-5 bg-zinc-950/40 mt-auto border-t border-zinc-800 flex justify-between items-center flex-shrink-0">
                       <div className="flex gap-1.5">
                         <button 
                           className="p-2.5 bg-zinc-900 border border-zinc-800 hover:border-red-500/50 text-zinc-500 hover:text-red-500 rounded-xl transition-all disabled:opacity-50"
@@ -604,21 +604,36 @@ function ConteudoContent() {
                         </button>
 
                         <button 
-                          className="p-2.5 bg-zinc-900 border border-zinc-800 hover:border-indigo-500/50 text-zinc-500 hover:text-indigo-500 rounded-xl transition-all disabled:opacity-50"
+                          className={clsx(
+                            "p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl transition-all disabled:opacity-50",
+                            isError ? "hover:border-red-500/50 text-red-500 hover:bg-red-500/10" : "hover:border-indigo-500/50 text-zinc-500 hover:text-indigo-500"
+                          )}
                           onClick={() => handleRender(post.id_post)}
                           disabled={!!isDeleting || !!isApproving || !!isRendering}
-                          title="Renderizar Vídeo"
+                          title={isError ? "Tentar Novamente (Erro)" : "Renderizar Vídeo"}
                         >
-                          {isRendering === post.id_post ? <RefreshCcw className="w-4 h-4 animate-spin text-indigo-500" /> : <PlayCircle className="w-4 h-4" />}
+                          {isRendering === post.id_post ? <RefreshCcw className={clsx("w-4 h-4 animate-spin", isError ? "text-red-500" : "text-indigo-500")} /> : 
+                           isError ? <RefreshCcw className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
                         </button>
                       </div>
                       
-                      <button 
-                        className="flex items-center gap-1.5 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all group/btn"
-                        onClick={() => setSelectedPostId(post.id_post)}
-                      >
-                        Detalhes <ExternalLink className="w-3 h-3 group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
-                      </button>
+                      <div className="flex gap-2">
+                        <a 
+                          href={`/conteudo/editor/${post.id_post}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all group/btn"
+                          title="Abrir no Estúdio Criativo"
+                        >
+                          Estúdio <ExternalLink className="w-3 h-3 group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
+                        </a>
+                        <button 
+                          className="flex items-center gap-1.5 px-3 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all group/btn"
+                          onClick={() => setSelectedPostId(post.id_post)}
+                        >
+                          Detalhes
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );

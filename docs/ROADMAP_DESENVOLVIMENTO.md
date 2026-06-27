@@ -54,8 +54,9 @@ Este documento consolida as próximas etapas prioritárias para a evolução do 
     - Aba Instagram: Editor de legenda com quebra de linha e sugestão de hashtags.
     - Aba YouTube Shorts: SEO focado em Título (max 100 caracteres) e Tags.
     - Aba TikTok: Download direto do vídeo com hash de versão e campo para link de rastreamento.
-- [ ] **Integração com Banco de Imagens:**
+- [ ] **Integração com Banco de Imagens & Reutilização Inteligente:**
     - No modal de criação/edição, permitir selecionar fotos das pastas `produtos_reais` e `embalagem` para compor o post.
+    - **Busca Vetorial (Pinecone):** Implementar motor de busca semântica para encontrar e reutilizar imagens e áudios gerados anteriormente no banco de dados (GCS/Supabase) baseando-se em similaridade e pontuação semântica.
 
 ## 5. Visualização do Funil de Conversão (Mercado Livre)
 **Objetivo:** Fechar o ciclo de dados entre a rede social e a venda final.

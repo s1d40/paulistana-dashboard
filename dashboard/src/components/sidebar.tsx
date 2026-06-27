@@ -17,10 +17,12 @@ import {
   LogOut,
   Calendar,
   Lightbulb,
-  TrendingUp
+  TrendingUp,
+  RefreshCw
 } from 'lucide-react';import clsx from 'clsx';
 import { useState } from 'react';
 import { signOut } from 'next-auth/react';
+import ThemeToggle from '@/components/theme-toggle';
 
 const mainNavigation = [
   { name: 'Visão Geral', href: '/', icon: LayoutDashboard },
@@ -33,14 +35,15 @@ const contentNavigation = [
   { name: 'Estúdio (IA)', href: '/conteudo/novo', icon: PlayCircle },
   { name: 'Biblioteca', href: '/conteudo', icon: FileText },
   { name: 'Social Hub', href: '/conteudo/publicar', icon: Share2 },
-  { name: 'Produção em Massa (Criar Listas)', href: '/ideacao', icon: Lightbulb },
-  { name: 'Produção em Massa (Produzir Vídeos)', href: '/production', icon: PlayCircle },
+  { name: 'Criar Listas (Ideação)', href: '/ideacao', icon: Lightbulb },
+  { name: 'Esteira de Produção', href: '/production', icon: PlayCircle },
 ];
 
 const assetNavigation = [
   { name: 'Banco de Imagens', href: '/banco-imagens', icon: Images },
   { name: 'Banco de Áudios', href: '/banco-audios', icon: Music },
   { name: 'Gerenciador de Ativos', href: '/produtos', icon: Package },
+  { name: 'Conversor de Mídia', href: '/conversor', icon: RefreshCw },
 ];
 
 export default function Sidebar() {
@@ -198,7 +201,9 @@ export default function Sidebar() {
       </div>
       
       {/* Bottom Profile/Settings */}
-      <div className="border-t border-zinc-200 dark:border-zinc-800 p-4 space-y-2">
+      <div className="flex-none pb-4">
+        <ThemeToggle isCollapsed={isCollapsed} />
+        <div className="px-4 space-y-2 mt-4">
         <Link href="/presets" className={clsx(
           "flex items-center gap-x-4 px-2 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 rounded-md transition-colors",
           isCollapsed && "justify-center"
@@ -217,6 +222,7 @@ export default function Sidebar() {
           <LogOut className="h-5 w-5" />
           {!isCollapsed && <span>Sair do Painel</span>}
         </button>
+        </div>
       </div>
     </div>
   );

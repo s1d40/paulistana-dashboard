@@ -1,83 +1,95 @@
-# Plano de Implementação: Refinamento da Esteira de Produção e Postagem Automática
+# Plano de Implementação — Próximos Passos (Reunião 25/06/2026)
 
-Este plano propõe refinar o fluxo de produção em massa e postagem no **Cocreator Dashboard**, habilitando a geração automatizada de captions e hashtags pelo Agente de Ideação, persistência no Supabase e uma interface aprimorada com recursos de download individual/em massa, publicação direta em 3 redes e agendamento sequencial inteligente.
+> Baseado nas notas da reunião entre Sidnei Felipe e Andre Felicissimo.
+> Detalhes técnicos foram adicionados após inspeção da codebase.
 
 ---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **Fluxo de Postagem Multi-Canal:** Atualmente, a API de publicação (`/api/content/publish`) dispara posts para redes específicas. Implementaremos um disparador paralelo para publicar nas três plataformas (Instagram, Facebook, YouTube Shorts) em lote ou por post individual, utilizando a conta vinculada no painel lateral.
+> **Aprovação do Plano Técnico**
+> Por favor, revise as mudanças propostas abaixo. A implementação envolverá modificações na forma como consumimos a API do Mercado Livre e a criação de uma nova arquitetura de filas para geração de vídeos no n8n.
+> Podemos prosseguir com a implementação da **Semana 1** e **Semana 2**?
 
-> [!TIP]
-> **Agendamento Sequencial Inteligente (Automático):** Para facilitar a distribuição, incluiremos uma funcionalidade de "Agendamento Automático" que distribuirá todos os vídeos da lista de forma linear (ex: 1 por dia, 2 por dia, etc.) a partir da data de início selecionada.
+## Open Questions
+
+> [!WARNING]
+> 1. Para a "Fila de processamento de vídeos", existe algum webhook específico no n8n que devo usar para iniciar os *workers*, ou devo criar um novo workflow de *polling* que roda a cada minuto buscando trabalhos pendentes no Supabase? (O plano sugere *polling*, mas *webhook* é mais rápido).
+> 2. Documentação da Autenticação do ML: Andre, quando puder, envie os links/documentos da nova API de token para que possamos iniciar a tarefa 5.
+
+---
+
+## Contexto Geral
+
+A equipe revisou o estado atual da plataforma e definiu prioridades claras:
+- **Foco primário**: Produção em massa de vídeos + ranking de concorrentes
+- **Descontinuado**: Ferramenta de reclamações (baixa prioridade)
+- **Monetização a validar**: Afiliados via Instagram/TikTok, SaaS, créditos por processamento
+- **Gargalo identificado**: Dependência excessiva de Sidnei; ausência de cronograma semanal
 
 ---
 
 ## Proposed Changes
 
-### Frontend & BFF API Components
+### Paginação Mercado Livre
 
-#### [MODIFY] [route.ts](file:///home/sid/cocreator-n8n/dashboard/src/app/api/production/route.ts)
-- Atualizar a ação `init_post` para receber os parâmetros `captions` e `hashtags` do corpo da requisição (`body`).
-- Adicionar os campos `captions` e `hashtags` no objeto `postToUpsert` antes de salvar/atualizar no Supabase.
+A busca atual limita-se aos primeiros resultados e depois aplica filtros localmente (como o de `fulfillment`), reduzindo drasticamente os resultados úteis.
 
-#### [MODIFY] [page.tsx](file:///home/sid/cocreator-n8n/dashboard/src/app/ideacao/page.tsx)
-- Modificar a constante `DEFAULT_IDEATION_PROMPT` para instruir explicitamente o Agente de Ideação a gerar também `titulo_otimizado`, `captions` e `hashtags` em cada item da lista.
-- O formato do item no array `items` da ferramenta `save_ideation_list` passará a conter:
-  - `tema` (tema do vídeo)
-  - `prompt` (diretrizes do roteiro)
-  - `titulo_otimizado` (título chamativo de até 100 caracteres)
-  - `captions` (legenda persuasiva e limpa)
-  - `hashtags` (5 a 10 hashtags estratégicas)
+#### [MODIFY] [route.ts](file:///home/sid/cocreator-n8n/dashboard/src/app/api/ml-spy/route.ts)
+- Implementar um loop `while` ou `for` para buscar múltiplas páginas (`offset += 50`) da API do Mercado Livre até que o array de `finalResults` atinja o `limit` desejado (ex: 50 resultados que de fato passaram no filtro).
+- Limitar o loop a um número máximo de chamadas (ex: 5-10 páginas) para evitar timeouts na Vercel e rate limits.
 
-#### [MODIFY] [chat-panel.tsx](file:///home/sid/cocreator-n8n/dashboard/src/components/chat-panel.tsx)
-- Adicionar no listener do chat uma verificação para a string `"✅ Lista de produção gerada e salva com sucesso."`.
-- Ao detectar essa frase (retornada pelo Agente de Ideação após persistir no banco), disparar `onToolSuccess('save_ideation_list')` para garantir feedback adequado no dashboard de ideacão.
+#### [MODIFY] [route.ts](file:///home/sid/cocreator-n8n/dashboard/src/app/api/concorrencia/auto-discover/route.ts)
+- Atualizar a busca de "Top 25 concorrentes" para também paginar se não encontrar 25 anúncios suficientes após descartar os do próprio André.
 
-#### [MODIFY] [page.tsx](file:///home/sid/cocreator-n8n/dashboard/src/app/production/page.tsx)
-- **Modelos e Estados:**
-  - Adicionar as propriedades `tituloOtimizado`, `captions` e `hashtags` no tipo/interface `ProductionItem`.
-- **Orquestração da Fila Sequencial:**
-  - Ao carregar itens da lista de ideação (`dataSource === 'lists'`), ler `titulo_otimizado`, `captions` e `hashtags` de cada item e salvá-los no estado do `ProductionItem`.
-  - Na ação de `init_post` do loop sequencial, enviar `captions` e `hashtags` da lista de ideação (com fallback/mesclagem para o roteiro gerado caso existam novos dados).
-  - No `polling` em tempo real de produção, carregar os campos `captions`, `hashtags` e `titulo_post` do `livePost` e atualizar o estado do `productionItems`.
-- **Funcionalidades de Ação Individual por Card:**
-  - Quando um post estiver `Pronto` (`status === 'Pronto'`), expandir a UI do card para mostrar:
-    - Um player ou preview de vídeo (aspecto elegante com bordas arredondadas).
-    - **Visualizador de Legendas & Tags:** Bloco de texto exibindo a caption e as hashtags geradas, com botões para copiar com um clique ou editar inline.
-    - **Botão Baixar (Download):** Botão estilizado com ícone que baixa o arquivo `.mp4` diretamente como um Blob (evitando que abra em nova aba).
-    - **Botão Publicar 3 Canais:** Publica o vídeo gerado de forma imediata e paralela no Instagram, Facebook e YouTube usando a conta selecionada.
-    - **Botão Agendar:** Seletor de data/hora inline simples e interativo para agendar o post individual.
-- **Painel de Ações em Massa (Bulk Actions):**
-  - Adicionar no cabeçalho do monitor de produção controles globais quando houver vídeos prontos:
-    - **Baixar Todos os Vídeos:** Dispara o download sequencial seguro de todos os vídeos finalizados na lista.
-    - **Publicar Lote Completo:** Dispara publicação paralela de todos os posts prontos nas três redes.
-    - **Agendar Automaticamente (Massa):** Painel compacto com seletor de "Data de Início" e "Frequência" (ex: 1 post/dia, 2 posts/dia, 3 posts/dia). Calcula sequencialmente e salva no Supabase o agendamento de todos os itens prontos da lista em massa.
+---
 
-### Specifications & n8n Tool Configurations
+### Fila de Processamento de Vídeos (n8n)
 
-#### [MODIFY] [IDEATION_AGENT_SPEC.md](file:///home/sid/cocreator-n8n/dashboard/IDEATION_AGENT_SPEC.md)
-- Atualizar a definição do schema da ferramenta `save_ideation_list` para incluir `titulo_otimizado`, `captions` e `hashtags` como propriedades obrigatórias do array `items`.
-- Ajustar as instruções do agente de ideação (`System Prompt Injection`) para exigir explicitamente que o LLM crie títulos otimizados, legendas persuasivas e hashtags estratégicas na chamada da ferramenta.
+Evitar timeouts no frontend ao processar múltiplos vídeos simultaneamente.
 
-#### [MODIFY] [TOOL_DEFINIR_METADADOS.md](file:///home/sid/cocreator-n8n/docs/TOOL_DEFINIR_METADADOS.md)
-- Incluir o campo `hashtags` na descrição da ferramenta `Definir_Metadados_Post` do Agente Arquiteto/Roteirista no n8n.
-- Atualizar a query SQL correspondente no sub-workflow do n8n para atualizar a coluna `hashtags` na tabela `posts` (adicionalmente à `titulo_post`, `tema_post` e `captions`).
+#### [NEW] [create_video_jobs.sql](file:///home/sid/cocreator-n8n/scripts/create_video_jobs.sql)
+- Criar script SQL para inicializar a tabela `video_jobs` no Supabase.
+- Campos: `id`, `user_id`, `prompt`, `status` (pending/processing/done/error), `video_url`, `created_at`, `updated_at`.
+- Habilitar **Supabase Realtime** nesta tabela para que o frontend seja notificado quando `status` mudar.
+
+#### [NEW] [video_queue_worker.json](file:///home/sid/cocreator-n8n/workflows/video_queue_worker.json)
+- Criar um workflow base no n8n que faz polling na tabela `video_jobs` a cada X minutos (ou via Webhook), processa 1 vídeo por vez (Geração de Script -> Áudio -> Imagem -> Vídeo), atualiza o GCS, e marca como `done` no banco.
+
+#### [MODIFY] API de Inicialização de Posts
+- Atualizar a rota `/api/production` (ou similar) no Next.js para, ao invés de aguardar a geração completa sincronicamente via HTTP, apenas fazer um `INSERT` na tabela `video_jobs` e retornar `202 Accepted` com o ID do job para o frontend ouvir via Realtime.
+
+---
+
+### Enriquecer Ranking de Concorrentes (Vigia)
+
+Melhorar a visualização dos concorrentes monitorados diariamente.
+
+#### [MODIFY] [page.tsx](file:///home/sid/cocreator-n8n/dashboard/src/app/mercado-livre/page.tsx)
+- Na aba "Vigia" (lista de watchlist), adicionar a exibição do **Preço atual**, **Link para o perfil do vendedor** e melhorar a interface do **Gráfico de Preço** histórico (que já é chamado no frontend, mas precisa estar mais visível).
+- Adicionar o **filtro de produtos** dentro da lista, facilitando a navegação.
+
+#### [MODIFY] [route.ts](file:///home/sid/cocreator-n8n/dashboard/src/app/api/ml-spy/watchlist/route.ts)
+- Garantir que a API de leitura da Watchlist (`GET`) faça um `JOIN` ou retorne o preço mais recente coletado da tabela `price_history` e o ID/nome do vendedor.
 
 ---
 
 ## Verification Plan
 
-### Automated & Manual Verification
-1. **Geração de Ideias no Ideation Studio:**
-   - Acessar `/ideacao` e testar a geração de uma nova pauta.
-   - Verificar se as pautas salvas contêm as propriedades `titulo_otimizado`, `captions` e `hashtags` no array JSON da tabela `production_lists`.
-2. **Esteira de Produção:**
-   - Acessar `/production`, selecionar a lista de ideação recém-criada e iniciar a produção.
-   - Confirmar se o `init_post` insere o post com a legenda e as hashtags pré-geradas no banco de dados Supabase.
-3. **Validação da UI de Ações no Monitor:**
-   - Aguardar a finalização dos vídeos e verificar os cards na aba do monitor.
-   - Clicar em "Copiar Legenda" e testar a cópia.
-   - Clicar em "Baixar Vídeo" e garantir que o download seja disparado no navegador com o nome do produto/tema correspondente.
-   - Testar o painel de "Agendamento Automático em Massa" definindo um espaçamento de posts de 24 horas a partir de amanhã. Verificar no Supabase ou na tela `/cronograma` se as datas e horas foram calculadas e salvas perfeitamente.
+### Automated Tests
+- Criar e rodar pequenos scripts em `/home/sid/cocreator-n8n/scripts` (ex: `test_ml_pagination.js`) para simular a chamada das APIs paginadas e garantir que os limites e acúmulos funcionam corretamente.
+
+### Manual Verification
+- Acessar o Dashboard localmente e fazer uma busca como "linhaça dourada" ativando o filtro "FULL". Verificar se o sistema retorna 50 itens (buscando em várias páginas) ou se esgota os resultados.
+- Inserir um "Video Job" via SQL ou frontend, disparar o n8n e ver o *Supabase Realtime* refletindo a mudança de status na UI.
+- Adicionar produtos à Watchlist e verificar a aba "Vigia" para constatar se o preço, foto e gráfico histórico aparecem corretamente.
+
+---
+
+## Cronograma Sugerido
+
+- **Semana 1**: Paginação ML + Validar coleta de concorrentes
+- **Semana 2**: Fila de vídeos + Enriquecer ranking (preço + foto)
+- **Semana 3**: Autenticação ML + Produção em massa de vídeos de signos
+- **Semana 4**: Validação de monetização (afiliados) + Ajustes

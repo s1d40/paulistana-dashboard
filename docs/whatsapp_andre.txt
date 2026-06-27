@@ -1,0 +1,12 @@
+Fala André! beleza? seguinte...
+
+Acabei de alinhar com o time as próximas evoluções da ferramenta do Mercado Livre. O objetivo é dar muita munição pra gente focar na concorrência. 
+
+O que estamos planejando e implementando:
+
+- Nuvem de SEO: O sistema vai mapear o Top 50 e mostrar as palavras-chave que mais se repetem na primeira página pra ajudar a nomear nossos produtos.
+- Destrinchar Anúncio com IA: Um botão pra IA ler a copy e os reviews do concorrente e mostrar pra gente os gatilhos mentais que ele usa e o "calcanhar de aquiles" dele, pra atacarmos nos nossos vídeos.
+- Integração com o Estúdio: A gente vai poder selecionar 3 ou 4 concorrentes de peso e mandar pro chat do estúdio. O roteirista de IA recebe tudo mastigado pra criar um vídeo focando no nosso custo-benefício contra eles.
+- Lista de Vigia: Um botão pra favoritar um concorrente e acompanhar o histórico de preço dele toda semana.
+
+Estamos focando no Destrinchar e na integração agora. Daqui a pouco dou mais atualizações. Valeu!

@@ -138,7 +138,8 @@ export async function POST(req: Request) {
     }
 
     if (!response.ok) {
-      throw new Error('Falha na comunicação com o Roteirista de IA no n8n.');
+      const errorText = await response.text();
+      throw new Error(`Falha n8n (Status ${response.status}): ${errorText}`);
     }
 
     const rawText = await response.text();

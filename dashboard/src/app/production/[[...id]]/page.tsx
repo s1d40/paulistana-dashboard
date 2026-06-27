@@ -6,17 +6,17 @@ import { useProductionQueue } from '@/store/production-queue';
 import { 
   PlayCircle, AlertCircle, Loader2, CheckCircle2, 
   PenTool, Sparkles, Package, Clock, Settings2, 
-  Lock, Unlock, ChevronRight, ChevronDown, ShieldCheck,
+  Lock, Unlock, ChevronRight, ChevronDown, ChevronLeft, ShieldCheck,
   Music, Image as ImageIcon, Video, Maximize,
   Copy, Download, Share2, Calendar, ExternalLink,
-  Layers, Globe, CalendarDays, MoreHorizontal, Type, Smartphone
+  Layers, Globe, CalendarDays, MoreHorizontal, Type, Smartphone, ListChecks, FolderKanban
 } from 'lucide-react';
 import ChatPanel from '@/components/chat-panel';
 import PresetSelector from '@/components/preset-selector';
 import PromptEditor from '@/components/prompt-editor';
 import AccountSelector from '@/components/account-selector';
 import ProductSelector from '@/components/product-selector';
-import { fetchProducts, fetchProductionLists, fetchProductionBatches, createProductionBatch, fetchContentPosts, fetchTable, GID_VIDEOS, GID_IMAGENS, GID_AUDIOS, Product, ProductionList, ProductionBatch, Account, Client, PostImage, PostAudio, PostVideo, PostVideoCena } from '@/services/supabase-service';
+import { fetchProducts, fetchProductionLists, fetchProductionBatches, createProductionBatch, fetchContentPosts, fetchTable, fetchAccounts, fetchClients, GID_VIDEOS, GID_IMAGENS, GID_AUDIOS, Product, ProductionList, ProductionBatch, Account, Client, PostImage, PostAudio, PostVideo, PostVideoCena } from '@/services/supabase-service';
 import clsx from 'clsx';
 import { supabase } from '@/lib/supabase';
 
@@ -43,9 +43,19 @@ interface ProductionItem {
   videoGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
 }
 
+import { useParams, useRouter } from 'next/navigation';
+
 export default function ProductionStudioPage() {
-  const { presets, activePresetId, updatePreset } = usePresetStore();
+  const params = useParams();
+  const router = useRouter();
+  const routeId = params?.id?.[0] || null;
+  
+  const { presets, activePresetId, updatePreset, setActivePreset } = usePresetStore();
   const { generateSceneImage, generateSceneAudio, renderAllScenes, compileFinalVideo } = useProductionQueue();
+  
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [activeTab, setActiveTab] = useState<'esteira' | 'listas' | 'agendamentos'>('esteira');
+  const [processingItems, setProcessingItems] = useState<Set<string>>(new Set());
   
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<'idle' | 'initializing' | 'running' | 'success' | 'error'>('idle');
@@ -56,8 +66,9 @@ export default function ProductionStudioPage() {
   const [productionLists, setProductionLists] = useState<ProductionList[]>([]);
   const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
   
-  const [dataSource, setDataSource] = useState<'products' | 'lists'>('products');
+  const [dataSource, setDataSource] = useState<'products' | 'lists'>('lists');
   const [selectedListId, setSelectedListId] = useState<string>('');
+  const [tempSelectedListId, setTempSelectedListId] = useState<string | null>(null);
 
   // Single Production (Sandbox) State
   const [chatInput, setChatInput] = useState('');
@@ -67,7 +78,7 @@ export default function ProductionStudioPage() {
 
   // UI States
   const [showConfig, setShowConfig] = useState(false);
-  const [isChatCollapsed, setIsChatCollapsed] = useState(false);
+  const [isChatCollapsed, setIsChatCollapsed] = useState(true);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
 
   // Publishing Context
@@ -105,9 +116,62 @@ export default function ProductionStudioPage() {
   // Carregar lista de produtos e lotes para a esteira
   useEffect(() => {
     fetchProducts().then(setProducts);
-    fetchProductionLists().then(setProductionLists);
-    fetchProductionBatches().then(setProductionBatches);
-  }, []);
+    
+    Promise.all([
+      fetchProductionLists(),
+      fetchProductionBatches()
+    ]).then(([lists, batches]) => {
+      setProductionLists(lists);
+      setProductionBatches(batches);
+      
+      if (routeId) {
+        // Tenta encontrar se é um Lote (Batch) já em andamento
+        const foundBatch = batches.find(b => b.id === routeId);
+        if (foundBatch) {
+          const reconstructedItems: ProductionItem[] = foundBatch.items.map(bi => ({
+            uuid: bi.uuid,
+            produto: bi.produto,
+            slug: bi.slug,
+            status: 'Aguardando',
+            images: [],
+            audios: [],
+            hasScript: false,
+            scriptGeneratingStatus: 'idle',
+            imagesGeneratingStatus: 'idle',
+            audiosGeneratingStatus: 'idle',
+            videoGeneratingStatus: 'idle'
+          }));
+          setProductionItems(reconstructedItems);
+          setIsDashboardView(true);
+          setTempSelectedListId(routeId);
+          setStatus('success');
+          
+          if (foundBatch.account_id) {
+             Promise.all([fetchAccounts(), fetchClients()]).then(([accs, clis]) => {
+                const acc = accs.find(a => a.id_conta === foundBatch.account_id);
+                if (acc) {
+                   setSelectedAccount(acc);
+                   const cli = clis.find(c => c.id_cliente === acc.id_cliente) || null;
+                   setSelectedClient(cli);
+                }
+             });
+          }
+          if (foundBatch.preset_id) {
+             setActivePreset(foundBatch.preset_id);
+          }
+          // O useEffect de fetchLiveStatus vai sincronizar o status real depois!
+        } else {
+          // Se não for Lote, tenta encontrar se é uma Lista Base
+          const foundList = lists.find(l => l.id === routeId);
+          if (foundList) {
+            setSelectedListId(foundList.id);
+            setTempSelectedListId(foundList.id);
+            // Mantém isDashboardView=false para que o usuário clique em Carregar Lista e crie o lote
+          }
+        }
+      }
+    });
+  }, [routeId]);
 
   // Consolidar todas as sessões em um único system message
   const consolidatedSystemMessage = useMemo(() => {
@@ -374,10 +438,14 @@ export default function ProductionStudioPage() {
 
             let newStatus: ProductionItem['status'] = item.status;
             
-            if (liveVideo) {
+            if (livePost?.status === 'Concluído' || liveVideo) {
               newStatus = 'Pronto';
-            } else if (livePost || liveImages.length > 0 || liveAudios.length > 0) {
+            } else if (livePost?.status === 'Produzir' || livePost?.status === 'Processando' || processingItems.has(item.uuid)) {
               newStatus = 'Processando';
+            } else if (livePost?.status === 'Erro na Produção' && !processingItems.has(item.uuid)) {
+              newStatus = 'Erro';
+            } else if (livePost) {
+              newStatus = 'Aguardando';
             }
 
             return { 
@@ -622,10 +690,22 @@ export default function ProductionStudioPage() {
 
   // --- STAGING AREA E FUNÇÕES GRANULARES ---
 
-  const handleLoadStagingArea = async (testOnly: boolean = false) => {
-    if (!activePreset || !selectedAccount) return;
+  const handleLoadStagingArea = async (testOnly: boolean = false, directListId?: string) => {
+    let preset = activePreset || presets[0];
+    if (!preset) {
+       alert("Nenhum Preset disponível para inicializar.");
+       return;
+    }
+    
+    let account = selectedAccount;
+    // We don't have access to clientAccounts directly here without state, but we can assume if it's missing, it'll fail at the API.
+    if (!account) {
+       alert("Nenhuma conta selecionada. Por favor, verifique as configurações (Left Sidebar).");
+       return;
+    }
     
     let items: ProductionItem[] = [];
+    const targetListId = directListId || selectedListId;
     
     if (dataSource === 'products') {
       if (products.length === 0) return;
@@ -643,7 +723,7 @@ export default function ProductionStudioPage() {
         videoGeneratingStatus: 'idle'
       }));
     } else {
-      const list = productionLists.find(l => l.id === selectedListId);
+      const list = productionLists.find(l => l.id === targetListId);
       if (!list || !list.items || list.items.length === 0) return;
       items = list.items.map(item => ({
         uuid: crypto.randomUUID(),
@@ -682,8 +762,8 @@ export default function ProductionStudioPage() {
         body: JSON.stringify({ 
           action: 'initialize',
           items,
-          presetName: activePreset.name,
-          id_conta: selectedAccount.id_conta
+          presetName: preset.name,
+          id_conta: account.id_conta
         }),
       });
 
@@ -696,12 +776,13 @@ export default function ProductionStudioPage() {
       const batchName = `Lote de ${items.length} itens - ${new Date().toLocaleString('pt-BR')}`;
       const newBatch = await createProductionBatch({
         name: batchName,
-        preset_id: activePresetId ?? undefined,
-        account_id: selectedAccount.id_conta,
+        preset_id: preset.id,
+        account_id: account.id_conta,
         items: items.map(i => ({ uuid: i.uuid, produto: i.produto, slug: i.slug }))
       });
       if (newBatch) {
         setProductionBatches(prev => [newBatch, ...prev]);
+        router.push('/production/' + newBatch.id);
       }
 
       setStatus('success');
@@ -750,10 +831,12 @@ export default function ProductionStudioPage() {
         const postAudios = audios?.filter(aud => aud.id_post === item.uuid) || [];
 
         let statusAtual: 'Aguardando' | 'Processando' | 'Pronto' | 'Erro' = 'Aguardando';
-        if (post?.url_video_pronto) {
+        if (post?.status === 'Concluído' || post?.url_video_pronto) {
            statusAtual = 'Pronto';
-        } else if (post?.roteiro_json || postImages.length > 0 || postAudios.length > 0) {
+        } else if (post?.status === 'Produzir' || post?.status === 'Processando') {
            statusAtual = 'Processando';
+        } else if (post?.status === 'Erro na Produção') {
+           statusAtual = 'Erro';
         }
 
         return {
@@ -849,7 +932,7 @@ export default function ProductionStudioPage() {
 
       if (!prodRes.ok) throw new Error(`Erro ao salvar roteiro no banco`);
 
-      updateItemState(item.uuid, { scriptGeneratingStatus: 'success', hasScript: true, status: 'Processando' });
+      updateItemState(item.uuid, { scriptGeneratingStatus: 'success', hasScript: true});
     } catch (err) {
       console.error(err);
       updateItemState(item.uuid, { scriptGeneratingStatus: 'error' });
@@ -866,7 +949,7 @@ export default function ProductionStudioPage() {
       const promises = script.cenas.map((cena: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => generateSceneImage(item.uuid, cena, undefined));
       await Promise.all(promises);
       
-      updateItemState(item.uuid, { imagesGeneratingStatus: 'success', status: 'Processando' });
+      updateItemState(item.uuid, { imagesGeneratingStatus: 'success'});
     } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
       console.error(err);
       updateItemState(item.uuid, { imagesGeneratingStatus: 'error' });
@@ -883,7 +966,7 @@ export default function ProductionStudioPage() {
       const promises = script.cenas.map((cena: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => generateSceneAudio(item.uuid, cena, script.voice_settings));
       await Promise.all(promises);
       
-      updateItemState(item.uuid, { audiosGeneratingStatus: 'success', status: 'Processando' });
+      updateItemState(item.uuid, { audiosGeneratingStatus: 'success'});
     } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
       console.error(err);
       updateItemState(item.uuid, { audiosGeneratingStatus: 'error' });
@@ -897,11 +980,17 @@ export default function ProductionStudioPage() {
       const script = await fetchScriptFromDb(item.uuid);
       if (!script) throw new Error('Roteiro não encontrado no banco. Gere o roteiro primeiro.');
       
-      const finalVideoUrl = await runAssetPipeline(item.uuid, item.produto, script.cenas, script.voice_settings);
+      setProcessingItems(prev => new Set(prev).add(item.uuid));
+      updateItemState(item.uuid, { videoGeneratingStatus: 'idle', status: 'Processando' });
+      await supabase.from('posts').update({ status: 'Produzir' }).eq('id_post', item.uuid);
       
-      updateItemState(item.uuid, { videoGeneratingStatus: 'success', status: 'Pronto', videoUrl: finalVideoUrl });
     } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
       console.error(err);
+      setProcessingItems(prev => {
+        const next = new Set(prev);
+        next.delete(item.uuid);
+        return next;
+      });
       updateItemState(item.uuid, { videoGeneratingStatus: 'error' });
       alert(`Erro no vídeo: ${err.message}`);
     }
@@ -909,14 +998,36 @@ export default function ProductionStudioPage() {
 
   const handleGenerateAll = async (item: ProductionItem) => {
     try {
+      setProcessingItems(prev => new Set(prev).add(item.uuid));
+      updateItemState(item.uuid, { status: 'Processando' });
+
       if (!item.hasScript) {
         await handleGenerateScript(item);
       }
-      await handleGenerateAudios(item);
-      await handleGenerateImages(item);
-      await handleGenerateVideo(item);
+      
+      const { error } = await supabase
+        .from('posts')
+        .update({ status: 'Produzir' })
+        .eq('id_post', item.uuid);
+        
+      if (error) {
+         console.error("Erro ao enviar para o worker:", error);
+         setProcessingItems(prev => {
+           const next = new Set(prev);
+           next.delete(item.uuid);
+           return next;
+         });
+         updateItemState(item.uuid, { status: 'Aguardando' });
+         alert("Erro ao enviar para a esteira do servidor.");
+      }
     } catch (err) {
       console.error("Erro no fluxo completo:", err);
+      setProcessingItems(prev => {
+        const next = new Set(prev);
+        next.delete(item.uuid);
+        return next;
+      });
+      updateItemState(item.uuid, { status: 'Aguardando' });
     }
   };
 
@@ -1009,6 +1120,68 @@ export default function ProductionStudioPage() {
 
       <div className="flex-1 flex overflow-hidden relative">
         
+        {/* BIG LIST SELECTOR OVERLAY */}
+        {(!isDashboardView && dataSource === 'lists') && (
+          <div className="absolute inset-0 z-50 bg-zinc-50 dark:bg-zinc-950 flex flex-col items-center justify-center p-8 animate-in fade-in duration-500">
+             <div className="max-w-4xl w-full space-y-8 text-center flex flex-col h-full max-h-[80vh]">
+                <div>
+                   <div className="w-20 h-20 bg-indigo-600/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                     <ListChecks className="w-10 h-10 text-indigo-600 dark:text-indigo-400" />
+                   </div>
+                   <h1 className="text-4xl font-black tracking-tight text-zinc-900 dark:text-white uppercase mb-4">Escolha a Fonte de Ideias</h1>
+                   <p className="text-zinc-500 font-medium max-w-lg mx-auto">Para iniciar a Esteira de Produção Autônoma, selecione qual lista de ideação aprovada você deseja processar hoje.</p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-left overflow-y-auto flex-1 p-4 custom-scrollbar">
+                  {productionLists.map(list => (
+                     <button
+                       key={list.id}
+                       onClick={() => setTempSelectedListId(list.id)}
+                       className={clsx(
+                         "p-6 rounded-3xl border transition-all group flex flex-col items-start gap-4 text-left",
+                         tempSelectedListId === list.id 
+                           ? "bg-indigo-50 dark:bg-indigo-900/10 border-indigo-500 shadow-xl shadow-indigo-500/20 scale-[1.02]" 
+                           : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 hover:border-indigo-500 hover:shadow-xl hover:shadow-indigo-500/10"
+                       )}
+                     >
+                        <div className={clsx(
+                          "w-12 h-12 rounded-2xl flex items-center justify-center transition-transform shrink-0",
+                          tempSelectedListId === list.id ? "bg-indigo-600 text-white" : "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 group-hover:scale-110"
+                        )}>
+                          <FolderKanban className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-black uppercase tracking-tight text-zinc-900 dark:text-white line-clamp-2 leading-tight">{list.name}</h3>
+                          <p className="text-xs font-bold text-zinc-500 mt-2 bg-zinc-100 dark:bg-zinc-800 inline-block px-2 py-1 rounded-md">{list.items?.length || 0} Postagens</p>
+                        </div>
+                     </button>
+                  ))}
+                  {productionLists.length === 0 && (
+                     <div className="col-span-full p-12 border-2 border-dashed border-zinc-300 dark:border-zinc-800 rounded-3xl text-zinc-500 text-center font-bold flex items-center justify-center">
+                       Nenhuma lista disponível. Vá para o Mural de Ideias aprovar alguns posts.
+                     </div>
+                  )}
+                </div>
+
+                <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800 flex justify-center">
+                   <button
+                     onClick={async () => {
+                        if (tempSelectedListId) {
+                           setSelectedListId(tempSelectedListId);
+                           await handleLoadStagingArea(false, tempSelectedListId);
+                        }
+                     }}
+                     disabled={!tempSelectedListId || isLoading}
+                     className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-300 disabled:dark:bg-zinc-800 disabled:text-zinc-500 text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl hover:-translate-y-1 transition-all flex items-center gap-2"
+                   >
+                     {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Package className="w-5 h-5" />}
+                     {isLoading ? "Carregando..." : "Carregar Lista"}
+                   </button>
+                </div>
+             </div>
+          </div>
+        )}
+
         {/* Left Sidebar: Controls & Session Editor */}
         <div className={clsx(
           "bg-zinc-50 dark:bg-zinc-900/50 border-r border-zinc-200 dark:border-zinc-800 flex flex-col overflow-hidden transition-all duration-500 ease-in-out z-10",
@@ -1025,15 +1198,18 @@ export default function ProductionStudioPage() {
                     </h2>
                     <button 
                       onClick={() => {
-                        if (confirm('Deseja parar o monitoramento e voltar para configurações?')) {
+                        if (confirm('Deseja voltar para a seleção e interromper o monitoramento atual?')) {
+                          router.push('/production');
                           setIsDashboardView(false);
                           setProductionItems([]);
                           setStatus('idle');
+                          setSelectedListId('');
+                          setTempSelectedListId(null);
                         }
-                      }} 
-                      className="text-[9px] font-black uppercase text-zinc-400 hover:text-red-500 transition-colors"
+                      }}  
+                      className="text-[9px] font-black uppercase text-zinc-400 hover:text-indigo-500 transition-colors flex items-center gap-1"
                     >
-                      Parar / Limpar
+                      <ChevronLeft className="w-3 h-3" /> Voltar para Seleção
                     </button>
                   </div>
 
@@ -1135,12 +1311,19 @@ export default function ProductionStudioPage() {
                           <div className="flex items-start justify-between">
                             <div className="flex gap-4 items-center">
                                <div className={clsx(
-                                 "w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner transition-all",
+                                 "w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner transition-all bg-cover bg-center overflow-hidden shrink-0 border border-zinc-200/50 dark:border-zinc-800/50",
+                                 (item.images?.length ?? 0) > 0 ? "" :
                                  item.status === 'Pronto' 
                                    ? "bg-gradient-to-br from-emerald-400 to-emerald-600 text-white shadow-emerald-500/30" 
                                    : "bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-zinc-800 dark:to-zinc-900 text-zinc-500 dark:text-zinc-400"
-                               )}>
-                                  {item.status === 'Pronto' ? <CheckCircle2 className="w-6 h-6" /> : <Package className="w-6 h-6" />}
+                               )}
+                               style={{
+                                 backgroundImage: (item.images?.length ?? 0) > 0 ? `url(${item.images![0]})` : undefined
+                               }}
+                               >
+                                  {(item.images?.length ?? 0) === 0 && (
+                                    item.status === 'Pronto' ? <CheckCircle2 className="w-6 h-6" /> : <Package className="w-6 h-6" />
+                                  )}
                                </div>
                                <div>
                                  <h4 className="text-sm font-black text-zinc-900 dark:text-white uppercase tracking-tight leading-none mb-1">{item.produto}</h4>
@@ -1170,7 +1353,7 @@ export default function ProductionStudioPage() {
                                      <div className={clsx("w-6 h-px", item.hasScript ? "bg-emerald-500" : "bg-zinc-200 dark:bg-zinc-800")} />
                                      <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", (item.images?.length ?? 0) > 0 ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><ImageIcon className="w-3 h-3"/></div>
                                      <div className={clsx("w-6 h-px", (item.images?.length ?? 0) > 0 ? "bg-emerald-500" : "bg-zinc-200 dark:bg-zinc-800")} />
-                                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", (item.audios?.length ?? 0) > 0 ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><Music className="w-3 h-3"/></div>
+                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", (item.audios?.length ?? 0) > 0 ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><Music className="w-3 h-3"/></div>
                                      <div className={clsx("w-6 h-px", (item.audios?.length ?? 0) > 0 ? "bg-emerald-500" : "bg-zinc-200 dark:bg-zinc-800")} />
                                      <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", item.videoGeneratingStatus === 'success' ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><Video className="w-3 h-3"/></div>
                                   </div>
@@ -1180,15 +1363,40 @@ export default function ProductionStudioPage() {
                                <div className="grid grid-cols-2 gap-2">
                                   <button 
                                     onClick={() => handleGenerateAll(item)}
-                                    disabled={item.status === 'Processando'}
+                                    disabled={item.status === 'Processando' || processingItems.has(item.uuid)}
                                     className={clsx(
                                       "col-span-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2",
-                                      item.status === 'Processando' ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed" : "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white hover:scale-[1.02]"
+                                      (item.status === 'Processando' || processingItems.has(item.uuid)) ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed" : 
+                                      item.status === 'Erro' ? "bg-red-500/10 border border-red-500/30 text-red-500 hover:bg-red-500/20" :
+                                      "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white hover:scale-[1.02]"
                                     )}
                                   >
-                                    {item.status === 'Processando' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                                    {item.status === 'Processando' ? 'Processando Automação...' : 'Gerar Vídeo Completo (Auto)'}
+                                    {(item.status === 'Processando' || processingItems.has(item.uuid)) ? <Loader2 className="w-4 h-4 animate-spin" /> : 
+                                     item.status === 'Erro' ? <AlertCircle className="w-4 h-4" /> :
+                                     <Sparkles className="w-4 h-4" />}
+                                    {(item.status === 'Processando' || processingItems.has(item.uuid)) ? 'Processando Automação...' : 
+                                     item.status === 'Erro' ? 'Tentar Novamente (Reprocessar)' :
+                                     'Gerar Vídeo Completo (Auto)'}
                                   </button>
+                                  
+                                  {item.hasScript ? (
+                                    <a 
+                                       href={`/conteudo/editor/${item.uuid}`}
+                                       target="_blank"
+                                       rel="noopener noreferrer"
+                                       className="col-span-2 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-indigo-500/20 hover:border-indigo-500/50 text-indigo-500 dark:text-indigo-400 flex items-center justify-center gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+                                    >
+                                       <ExternalLink className="w-3 h-3" /> Abrir no Estúdio
+                                    </a>
+                                  ) : (
+                                    <button 
+                                      onClick={() => handleGenerateScript(item)}
+                                      disabled={item.scriptGeneratingStatus === 'generating'}
+                                      className="col-span-2 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-zinc-500/20 hover:border-zinc-500/50 text-zinc-600 dark:text-zinc-400 flex items-center justify-center gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
+                                    >
+                                      {item.scriptGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <PenTool className="w-3 h-3" />} Gerar Roteiro
+                                    </button>
+                                  )}
                                   
                                   <details className="col-span-2 group">
                                      <summary className="text-[9px] font-bold uppercase text-zinc-400 hover:text-indigo-400 cursor-pointer flex items-center justify-center gap-1 mt-2">
@@ -1555,60 +1763,62 @@ export default function ProductionStudioPage() {
           </div>
 
           {/* Action Footer */}
-          <div className="p-6 bg-white dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 flex flex-col gap-3">
-            <button
-              onClick={() => handleLoadStagingArea(false)}
-              disabled={
-                isLoading || 
-                !activePreset || 
-                !selectedAccount || 
-                (dataSource === 'products' && products.length === 0) ||
-                (dataSource === 'lists' && !selectedListId)
-              }
-              className={`w-full relative group overflow-hidden px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl transition-all flex items-center justify-center gap-3 ${
-                isLoading 
-                  ? 'bg-zinc-400 dark:bg-zinc-700 cursor-not-allowed' 
-                  : !activePreset || !selectedAccount || (dataSource === 'products' && products.length === 0) || (dataSource === 'lists' && !selectedListId)
-                    ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700 text-white hover:-translate-y-1 hover:shadow-indigo-500/40'
-              }`}
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Carregando...
-                </>
-              ) : (
-                <>
-                  <Package className="w-5 h-5" />
-                  Carregar Lote na Staging Area
-                </>
-              )}
-            </button>
-
-            {!isLoading && activePreset && selectedAccount && ((dataSource === 'products' && products.length > 0) || (dataSource === 'lists' && selectedListId)) && (
+          {!isDashboardView && (
+            <div className="p-6 bg-white dark:bg-zinc-950 border-t border-zinc-200 dark:border-zinc-800 flex flex-col gap-3">
               <button
-                onClick={() => handleLoadStagingArea(true)}
-                className="w-full px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest border border-indigo-200 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800/30 dark:text-indigo-500 dark:hover:bg-indigo-900/20 transition-all flex items-center justify-center gap-2"
+                onClick={() => handleLoadStagingArea(false)}
+                disabled={
+                  isLoading || 
+                  !activePreset || 
+                  !selectedAccount || 
+                  (dataSource === 'products' && products.length === 0) ||
+                  (dataSource === 'lists' && !selectedListId)
+                }
+                className={`w-full relative group overflow-hidden px-6 py-4 rounded-2xl font-black text-sm uppercase tracking-widest shadow-2xl transition-all flex items-center justify-center gap-3 ${
+                  isLoading 
+                    ? 'bg-zinc-400 dark:bg-zinc-700 cursor-not-allowed' 
+                    : !activePreset || !selectedAccount || (dataSource === 'products' && products.length === 0) || (dataSource === 'lists' && !selectedListId)
+                      ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white hover:-translate-y-1 hover:shadow-indigo-500/40'
+                }`}
               >
-                <Sparkles className="w-4 h-4" />
-                Carregar apenas 1º item para teste
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Carregando...
+                  </>
+                ) : (
+                  <>
+                    <Package className="w-5 h-5" />
+                    Carregar Lote na Staging Area
+                  </>
+                )}
               </button>
-            )}
 
-            {status === 'success' && (
-              <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-950 rounded-xl border border-emerald-100 dark:border-emerald-800 flex items-center gap-2 text-emerald-700 dark:text-emerald-400 animate-in slide-in-from-bottom-1">
-                 <CheckCircle2 className="w-4 h-4" />
-                 <span className="text-[10px] font-bold uppercase">Workflows disparados com sucesso!</span>
-              </div>
-            )}
-            {status === 'error' && (
-              <div className="mt-4 p-3 bg-red-50 dark:bg-red-950 rounded-xl border border-red-100 dark:border-red-800 flex items-center gap-2 text-red-700 dark:text-red-400 animate-in slide-in-from-bottom-1">
-                 <AlertCircle className="w-4 h-4" />
-                 <span className="text-[10px] font-bold uppercase truncate">{errorMessage}</span>
-              </div>
-            )}
-          </div>
+              {!isLoading && activePreset && selectedAccount && ((dataSource === 'products' && products.length > 0) || (dataSource === 'lists' && selectedListId)) && (
+                <button
+                  onClick={() => handleLoadStagingArea(true)}
+                  className="w-full px-6 py-3 rounded-xl font-bold text-xs uppercase tracking-widest border border-indigo-200 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800/30 dark:text-indigo-500 dark:hover:bg-indigo-900/20 transition-all flex items-center justify-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Carregar apenas 1º item para teste
+                </button>
+              )}
+
+              {status === 'success' && (
+                <div className="mt-4 p-3 bg-emerald-50 dark:bg-emerald-950 rounded-xl border border-emerald-100 dark:border-emerald-800 flex items-center gap-2 text-emerald-700 dark:text-emerald-400 animate-in slide-in-from-bottom-1">
+                   <CheckCircle2 className="w-4 h-4" />
+                   <span className="text-[10px] font-bold uppercase">Workflows disparados com sucesso!</span>
+                </div>
+              )}
+              {status === 'error' && (
+                <div className="mt-4 p-3 bg-red-50 dark:bg-red-950 rounded-xl border border-red-100 dark:border-red-800 flex items-center gap-2 text-red-700 dark:text-red-400 animate-in slide-in-from-bottom-1">
+                   <AlertCircle className="w-4 h-4" />
+                   <span className="text-[10px] font-bold uppercase truncate">{errorMessage}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Main Content: Chat Sandbox */}

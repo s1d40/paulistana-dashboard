@@ -53,3 +53,8 @@ MEMORY.md
 *.sqlite*
 *.zip
 *_unzipped/
+*venv/
+scratch/
+__pycache__/
+video andre/
+*.mp4

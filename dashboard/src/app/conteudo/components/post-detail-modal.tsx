@@ -12,6 +12,7 @@ import {
   CalendarDays, Bot
 } from 'lucide-react';
 import { fetchPostDetails, duplicatePostAsDraft, PostDetailsPayload, Account } from '@/services/supabase-service';
+import { supabase } from '@/lib/supabase';
 import clsx from 'clsx';
 import AccountSelector from '@/components/account-selector';
 import Link from 'next/link';
@@ -43,7 +44,103 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
     setTimeout(() => setCopiedField(null), 2000);
   };
 
+  const [isSavePresetModalOpen, setIsSavePresetModalOpen] = useState(false);
+  const [newPresetName, setNewPresetName] = useState('');
+  const [newPresetDesc, setNewPresetDesc] = useState('');
+  const [isSavingPreset, setIsSavingPreset] = useState(false);
+
+  const handleSavePreset = async () => {
+    if (!newPresetName.trim()) {
+      alert('Por favor, insira um nome para o preset.');
+      return;
+    }
+    setIsSavingPreset(true);
+    try {
+      const { data: currentPreset, error: fetchErr } = await supabase
+        .from('content_presets')
+        .select('*')
+        .eq('id', postId)
+        .maybeSingle();
+        
+      if (fetchErr) throw fetchErr;
+      
+      const newConfig = currentPreset?.config || {};
+      newConfig.is_draft = false;
+
+      const { error } = await supabase
+        .from('content_presets')
+        .upsert({
+          id: postId,
+          name: newPresetName,
+          description: newPresetDesc || 'Preset extraído da biblioteca',
+          track: currentPreset?.track || 'TikTok / Reels',
+          sessions: currentPreset?.sessions || [],
+          config: newConfig
+        });
+
+      if (error) throw error;
+      
+      alert('Preset salvo na Biblioteca de Arquitetos com sucesso!');
+      setIsSavePresetModalOpen(false);
+      setNewPresetName('');
+      setNewPresetDesc('');
+      
+      setDetails(prev => prev ? { ...prev, has_preset: true } : null);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar preset. Tem certeza que as configurações de IA estão anexas a este post?');
+    } finally {
+      setIsSavingPreset(false);
+    }
+  };
+
   // Form States
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+
+  const handleGenerateScript = async () => {
+    if (!details?.post) return;
+    setIsGeneratingScript(true);
+    try {
+      let config = { model: 'gpt-4o', temperature: 0.7, prompt: `Criar roteiro para: ${details.post.tema_post}` };
+      
+      if (details.has_preset) {
+        const { data: preset } = await supabase.from('content_presets').select('*').eq('id', postId).maybeSingle();
+        if (preset?.config) {
+          config = { ...preset.config, prompt: preset.config.prompt || config.prompt };
+        }
+      }
+
+      const response = await fetch('/api/chat/roteirista', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_prompt: `Gerar roteiro sobre ${details.post.tema_post}`,
+          system_message: 'Você é um roteirista de alta performance.',
+          config
+        })
+      });
+
+      if (!response.ok) {
+        let errorMsg = `Erro na geração de roteiro para ${details.post.tema_post}`;
+        try { const errData = await response.json(); if (errData.error) errorMsg = errData.error; } catch(e) {}
+        throw new Error(errorMsg);
+      }
+      const { script } = await response.json();
+      
+      const roteiroString = JSON.stringify(script);
+      const { error } = await supabase.from('posts').update({ roteiro_gerado: roteiroString }).eq('id_post', postId);
+      if (error) throw error;
+      
+      setDetails({ ...details, post: { ...details.post, roteiro_gerado: roteiroString } });
+      alert('Roteiro gerado com sucesso!');
+    } catch (err: any) {
+      alert(`Falha ao gerar roteiro: ${err.message}`);
+    } finally {
+      setIsGeneratingScript(false);
+    }
+  };
+
+  // Other Form States
   const [caption, setCaption] = useState('');
   const [hashtags, setHashtags] = useState('');
   const [ytTitle, setYtTitle] = useState('');
@@ -265,6 +362,15 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
             {details?.post && (
               <div className="flex gap-2 mr-4 border-r border-zinc-800/50 pr-4">
                 <button 
+                  onClick={() => setIsSavePresetModalOpen(true)}
+                  disabled={isDuplicating || isSaving || loading || !details?.has_preset}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 border border-amber-500/20 disabled:cursor-not-allowed"
+                  title={details?.has_preset ? "Salvar configuração de IA (DNA do Arquiteto) como um Preset reutilizável" : "Este post não possui configurações de IA salvas para serem copiadas"}
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Salvar Preset
+                </button>
+                <button 
                   onClick={handleDuplicateToArchitect}
                   disabled={isDuplicating || isSaving || loading || !details?.has_preset}
                   className="flex items-center gap-1.5 px-4 py-2 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 border border-indigo-500/20 disabled:cursor-not-allowed"
@@ -370,9 +476,28 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
                         <h4 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-zinc-500">
                           <FileText className="w-4 h-4 text-orange-500" /> Roteiro Estratégico
                         </h4>
-                        <p className="text-zinc-400 whitespace-pre-wrap text-sm leading-relaxed italic border-l-2 border-orange-500/30 pl-6 py-2">
-                          &quot;{details.post.roteiro_gerado}&quot;
-                        </p>
+                        {details.post.roteiro_gerado ? (
+                          <p className="text-zinc-400 whitespace-pre-wrap text-sm leading-relaxed italic border-l-2 border-orange-500/30 pl-6 py-2">
+                            &quot;{details.post.roteiro_gerado}&quot;
+                          </p>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-zinc-800 rounded-xl space-y-4">
+                            <p className="text-zinc-500 text-sm italic">Nenhum roteiro gerado ainda.</p>
+                            <button
+                              onClick={handleGenerateScript}
+                              disabled={isGeneratingScript || (!details.has_preset && !details.post.tema_post)}
+                              className="px-6 py-3 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-500 hover:bg-orange-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50"
+                            >
+                              {isGeneratingScript ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
+                              {isGeneratingScript ? 'Gerando Roteiro...' : 'Gerar Roteiro com IA'}
+                            </button>
+                            {!details.has_preset && (
+                              <p className="text-[9px] text-zinc-600 uppercase tracking-widest text-center">
+                                Aviso: Post sem preset vinculado. Será usado prompt genérico.
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -851,6 +976,69 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
           )}
         </div>
       </div>
+
+      {/* Save Preset Modal */}
+      {isSavePresetModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsSavePresetModalOpen(false)} />
+          <div className="relative bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-5 border-b border-zinc-800 bg-zinc-950/50">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Save className="w-5 h-5 text-amber-500" />
+                Salvar como Preset
+              </h3>
+              <button onClick={() => setIsSavePresetModalOpen(false)} className="text-zinc-500 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-zinc-400">
+                Isso salvará o DNA do Arquiteto (prompt, modelo e sessões de pesquisa) utilizado neste post como um modelo reutilizável na sua Biblioteca de Arquitetos.
+              </p>
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Nome do Preset</label>
+                <input 
+                  type="text" 
+                  value={newPresetName}
+                  onChange={e => setNewPresetName(e.target.value)}
+                  placeholder="Ex: Roteiro Viral para Perfumes..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-zinc-500 uppercase tracking-wider mb-2">Descrição (Opcional)</label>
+                <textarea 
+                  value={newPresetDesc}
+                  onChange={e => setNewPresetDesc(e.target.value)}
+                  placeholder="Descrição breve do que este preset faz..."
+                  className="w-full h-24 bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-zinc-800 bg-zinc-950/30 flex justify-end gap-3">
+              <button 
+                onClick={() => setIsSavePresetModalOpen(false)}
+                disabled={isSavingPreset}
+                className="px-5 py-2.5 rounded-xl text-sm font-bold text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleSavePreset}
+                disabled={isSavingPreset || !newPresetName.trim()}
+                className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-black rounded-xl text-sm font-black transition-all shadow-lg shadow-amber-500/20 disabled:opacity-50"
+              >
+                {isSavingPreset ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Salvar Preset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

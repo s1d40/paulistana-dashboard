@@ -104,6 +104,8 @@ export interface ProductionList {
     titulo_otimizado?: string;
     captions?: string;
     hashtags?: string;
+    preset_id?: string;
+    model?: string;
   }>;
   status: string;
   created_at: string;

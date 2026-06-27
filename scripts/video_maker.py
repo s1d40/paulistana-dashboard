@@ -138,7 +138,8 @@ def run_animator():
             filter_complex += f",ass='{ass_gerado}'"
 
         cmd = [
-            'ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+            'ffmpeg', '-y',
+
             '-i', args.image_path,
             '-i', args.audio_path,
             '-filter_complex', filter_complex,

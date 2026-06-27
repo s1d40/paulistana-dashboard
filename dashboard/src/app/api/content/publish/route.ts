@@ -53,9 +53,12 @@ export async function POST(request: Request) {
       case 'instagram':
         n8nWebhookUrl = 'https://n8n.sfaisolutions.com/webhook/63e09a9b-fc19-4a14-818e-7ac30406c56e';
         break;
+      case 'tiktok':
+        n8nWebhookUrl = 'https://n8n.sfaisolutions.com/webhook/tiktok-publish-webhook'; // Configure o webhook correto do n8n para o TikTok
+        break;
       case 'all':
-        // Usa webhook-test se o usuário estiver testando
-        n8nWebhookUrl = 'https://n8n.sfaisolutions.com/webhook-test/d9c2e03e-83c8-432d-a97c-a9704846048d';
+        // Usa a URL de produção do webhook (removido o -test)
+        n8nWebhookUrl = 'https://n8n.sfaisolutions.com/webhook/d9c2e03e-83c8-432d-a97c-a9704846048d';
         break;
       default:
         n8nWebhookUrl = process.env.N8N_WEBHOOK_CONTEUDO_URL || '';

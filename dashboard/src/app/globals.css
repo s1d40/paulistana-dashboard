@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *, .sunset, .sunset *, .dawn, .dawn *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -17,6 +19,46 @@
     --background: #0a0a0a;
     --foreground: #ededed;
   }
+}
+
+.light {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+.sunset {
+  --background: #1c100c;
+  --foreground: #fff3ed;
+  --color-zinc-950: #1a0e08;
+  --color-zinc-900: #2b150c;
+  --color-zinc-800: #3f1e10;
+  --color-zinc-700: #572915;
+  --color-zinc-600: #71351a;
+  --color-zinc-200: #e0ac93;
+  --color-zinc-300: #d49578;
+  --color-indigo-400: #fb923c;
+  --color-indigo-500: #f97316;
+  --color-indigo-600: #ea580c;
+}
+
+.dawn {
+  --background: #060913;
+  --foreground: #eef2ff;
+  --color-zinc-950: #040711;
+  --color-zinc-900: #0a1128;
+  --color-zinc-800: #111d40;
+  --color-zinc-700: #1c2b59;
+  --color-zinc-600: #293d73;
+  --color-zinc-200: #869ddb;
+  --color-zinc-300: #6b86ce;
+  --color-indigo-400: #8b5cf6;
+  --color-indigo-500: #7c3aed;
+  --color-indigo-600: #6d28d9;
 }
 
 body {

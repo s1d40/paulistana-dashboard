@@ -102,6 +102,7 @@ export async function POST(request: Request) {
           action: action,
           id_conta: id_conta || '',
           chat_id: chat_id || '',
+          production_list_id: body.production_list_id || null,
           preset: {
             id: presetId,
             name: presetName,
