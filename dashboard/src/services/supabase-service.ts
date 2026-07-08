@@ -283,25 +283,28 @@ export async function fetchContentPosts(page?: number, limit?: number): Promise<
 }
 
 export async function fetchAccounts(): Promise<Account[]> {
-  const { data, error } = await supabase
-    .from('contas')
-    .select('*')
-    .not('id_conta', 'is', null); // Cache buster
-  
-  if (error) {
-    console.error('Error fetching accounts from Supabase:', error);
+  try {
+    const res = await fetch('/api/accounts', { cache: 'no-store' });
+    if (!res.ok) {
+      console.error('Error fetching accounts:', res.statusText);
+      return [];
+    }
+    const json = await res.json();
+    const data = json.accounts || [];
+    
+    // Deduplicate by id_conta (safety net)
+    const seen = new Set<string>();
+    const unique = data.filter((acc: any) => {
+      if (seen.has(acc.id_conta)) return false;
+      seen.add(acc.id_conta);
+      return true;
+    });
+
+    return unique as Account[];
+  } catch (error) {
+    console.error('Error fetching accounts:', error);
     return [];
   }
-  
-  // Deduplicate by id_conta (safety net)
-  const seen = new Set<string>();
-  const unique = (data || []).filter((acc: any) => {
-    if (seen.has(acc.id_conta)) return false;
-    seen.add(acc.id_conta);
-    return true;
-  });
-
-  return unique as Account[];
 }
 
 export async function fetchClients(): Promise<Client[]> {
