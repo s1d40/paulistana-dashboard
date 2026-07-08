@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 
 export interface PostImage {
+  id_imagem?: string;
   id_post: string;
   image_url?: string;
   prompt_utilizado?: string;
@@ -92,6 +93,8 @@ export interface ContentPost {
   audio_status?: 'Pendente' | 'OK';
   video_status?: 'Pendente' | 'OK';
   imagens?: PostImage[];
+  audios?: PostAudio[];
+  videos?: PostVideo[];
 }
 
 export interface ProductionList {
@@ -179,22 +182,38 @@ export async function fetchAllAudios(page?: number, limit?: number): Promise<Pos
 
 export async function fetchProducts(): Promise<Product[]> {
   const { data, error } = await supabase
-    .from('produtos')
-    .select('*');
+    .from('produtos_plataformas')
+    .select(`
+      title,
+      slug_embalagem,
+      slug_imagem_real,
+      produtos (
+        restricao_narrativa,
+        restricao_visual
+      )
+    `);
 
   if (error) {
     console.error('Error fetching products from Supabase:', error);
     return [];
   }
 
-  // Mapear campos do Postgres (snake_case) de volta para o padrão esperado pela interface (Pascal/Camel)
-  return data.map((item: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => ({
-    Produto: item.produto,
-    slug_embalagem: item.slug_embalagem,
-    slug_imagem_real: item.slug_imagem_real,
-    Restricao_Narrativa: item.restricao_narrativa,
-    Restricao_Visual: item.restricao_visual
-  }));
+  const uniqueProducts = new Map();
+
+  data.forEach((item: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
+    const key = item.title?.toLowerCase().trim();
+    if (key && !uniqueProducts.has(key)) {
+      uniqueProducts.set(key, {
+        Produto: item.title,
+        slug_embalagem: item.slug_embalagem || '',
+        slug_imagem_real: item.slug_imagem_real || '',
+        Restricao_Narrativa: item.produtos?.restricao_narrativa || '',
+        Restricao_Visual: item.produtos?.restricao_visual || ''
+      });
+    }
+  });
+
+  return Array.from(uniqueProducts.values());
 }
 
 export async function fetchProductionLists(): Promise<ProductionList[]> {
@@ -242,7 +261,7 @@ export async function createProductionBatch(batch: Omit<ProductionBatch, 'id' | 
 export async function fetchContentPosts(page?: number, limit?: number): Promise<ContentPost[]> {
   let query = supabase
     .from('posts')
-    .select('*, imagens(image_url, url_imagem_fundo, numero_cena)')
+    .select('*, imagens(image_url, url_imagem_fundo, numero_cena), audios(audio_url), videos(video_final_url)')
     .order('data_criacao', { ascending: false });
     
   if (page !== undefined && limit !== undefined) {
@@ -266,14 +285,23 @@ export async function fetchContentPosts(page?: number, limit?: number): Promise<
 export async function fetchAccounts(): Promise<Account[]> {
   const { data, error } = await supabase
     .from('contas')
-    .select('*');
+    .select('*')
+    .not('id_conta', 'is', null); // Cache buster
   
   if (error) {
     console.error('Error fetching accounts from Supabase:', error);
     return [];
   }
   
-  return data as Account[];
+  // Deduplicate by id_conta (safety net)
+  const seen = new Set<string>();
+  const unique = (data || []).filter((acc: any) => {
+    if (seen.has(acc.id_conta)) return false;
+    seen.add(acc.id_conta);
+    return true;
+  });
+
+  return unique as Account[];
 }
 
 export async function fetchClients(): Promise<Client[]> {
@@ -392,6 +420,13 @@ export async function updatePostInSupabase(id_post: string, updates: Partial<Con
     .eq('id_post', id_post);
 
   if (error) throw error;
+}
+
+export async function clearMediaFromSupabase(id_post: string) {
+  await supabase.from('videos').delete().eq('id_post', id_post);
+  await supabase.from('videos_cenas').delete().eq('id_post', id_post);
+  await supabase.from('imagens').delete().eq('id_post', id_post);
+  await supabase.from('audios').delete().eq('id_post', id_post);
 }
 
 export async function deletePostFromSupabase(id_post: string) {

@@ -53,11 +53,7 @@ export async function POST(request: Request) {
       case 'instagram':
         n8nWebhookUrl = 'https://n8n.sfaisolutions.com/webhook/63e09a9b-fc19-4a14-818e-7ac30406c56e';
         break;
-      case 'tiktok':
-        n8nWebhookUrl = 'https://n8n.sfaisolutions.com/webhook/tiktok-publish-webhook'; // Configure o webhook correto do n8n para o TikTok
-        break;
       case 'all':
-        // Usa a URL de produção do webhook (removido o -test)
         n8nWebhookUrl = 'https://n8n.sfaisolutions.com/webhook/d9c2e03e-83c8-432d-a97c-a9704846048d';
         break;
       default:
@@ -69,11 +65,10 @@ export async function POST(request: Request) {
     }
 
     const payload = {
-      action: scheduled_for ? 'schedule_content' : 'publish_content',
+      action: 'publish_content',
       platform,
       id_post: postId,
       id_conta: accountId,
-      scheduled_for: scheduled_for || null,
       metadata: {
         title: post.titulo_post,
         theme: post.tema_post,

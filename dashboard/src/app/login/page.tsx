@@ -1,32 +1,69 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
 import { signIn } from 'next-auth/react';
-import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { Sparkles, Layout, AlertTriangle, Terminal } from 'lucide-react';
+import { useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { Sparkles, Layout, AlertTriangle, Eye, EyeOff, LogIn, CheckCircle2 } from 'lucide-react';
 
 import { Suspense } from 'react';
 
 function LoginContent() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
   const searchParams = useSearchParams();
-  const error = searchParams.get('error');
+  const urlError = searchParams.get('error');
+  const justRegistered = searchParams.get('registered') === 'true';
 
-  const handleLogin = async () => {
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!email.trim() || !password.trim()) {
+      setError('Preencha email e senha.');
+      return;
+    }
+
     setLoading(true);
+    try {
+      const res = await signIn('email-login', {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (res?.error) {
+        setError('Email ou senha incorretos.');
+        setLoading(false);
+      } else {
+        window.location.href = '/';
+      }
+    } catch {
+      setError('Erro ao fazer login. Tente novamente.');
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
     try {
       await signIn('google', { callbackUrl: '/' });
     } catch (err) {
       console.error('Login error:', err);
       alert('Erro ao tentar logar com o Google.');
-      setLoading(false);
+      setGoogleLoading(false);
     }
   };
 
   return (
-    <div className="z-10 w-full max-w-md p-8 space-y-8 bg-zinc-900/40 border border-zinc-800/50 rounded-[2.5rem] backdrop-blur-xl shadow-2xl">
+    <div className="z-10 w-full max-w-md p-8 space-y-6 bg-zinc-900/40 border border-zinc-800/50 rounded-[2.5rem] backdrop-blur-xl shadow-2xl">
+      {/* Header */}
       <div className="text-center space-y-4">
-        {/* ... (Logo and Title remains the same) */}
         <div className="w-20 h-20 bg-gradient-to-br from-orange-500 to-purple-600 rounded-[1.5rem] flex items-center justify-center shadow-2xl shadow-orange-500/20 mx-auto relative">
           <Layout className="w-8 h-8 text-white" />
           <div className="absolute -top-2 -right-2 w-6 h-6 bg-white rounded-full flex items-center justify-center animate-bounce">
@@ -37,10 +74,21 @@ function LoginContent() {
         <h1 className="text-3xl font-black uppercase tracking-tighter text-white italic">
           Cocreator <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-purple-600">Studio</span>
         </h1>
-        <p className="text-zinc-500 text-sm font-medium">Acesso restrito à equipe interna.</p>
+        <p className="text-zinc-500 text-sm font-medium">Entre com sua conta para acessar o painel.</p>
       </div>
 
-      {error === 'unauthorized' && (
+      {/* Success from registration */}
+      {justRegistered && (
+        <div className="p-4 bg-emerald-950/20 border border-emerald-900/50 rounded-2xl flex items-center gap-3 text-emerald-400">
+          <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
+          <p className="text-xs font-bold uppercase tracking-widest">
+            Conta criada! Faça login para continuar.
+          </p>
+        </div>
+      )}
+
+      {/* Error banners */}
+      {urlError === 'unauthorized' && (
         <div className="p-4 bg-red-950/20 border border-red-900/50 rounded-2xl flex items-center gap-3 text-red-500">
           <AlertTriangle className="w-5 h-5 flex-shrink-0" />
           <p className="text-[10px] font-black uppercase tracking-widest leading-relaxed">
@@ -49,26 +97,101 @@ function LoginContent() {
         </div>
       )}
 
-      <div className="space-y-4">
+      {error && (
+        <div className="p-4 bg-red-950/20 border border-red-900/50 rounded-2xl flex items-center gap-3 text-red-500">
+          <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+          <p className="text-xs font-bold uppercase tracking-widest">{error}</p>
+        </div>
+      )}
+
+      {/* Email/Password Form */}
+      <form onSubmit={handleEmailLogin} className="space-y-4">
+        <div>
+          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 block">
+            Email
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="seu@email.com"
+            className="w-full bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all"
+            autoComplete="email"
+          />
+        </div>
+
+        <div>
+          <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5 block">
+            Senha
+          </label>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Sua senha"
+              className="w-full bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3.5 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all pr-12"
+              autoComplete="current-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
         <button
-          onClick={handleLogin}
+          type="submit"
           disabled={loading}
-          className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white hover:bg-zinc-200 text-black rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all hover:scale-105 active:scale-95 disabled:opacity-50 group"
+          className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-orange-500 to-purple-600 hover:from-orange-400 hover:to-purple-500 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl shadow-orange-500/10 transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {loading ? (
-            <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           ) : (
-            <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
-              {/* ... Google SVG path remains same) */}
-              <g transform="matrix(1, 0, 0, 1, 27.009001, -39.238998)">
-                <path fill="#4285F4" d="M -3.264 51.509 C -3.264 50.719 -3.334 49.969 -3.454 49.239 L -14.754 49.239 L -14.754 53.749 L -8.284 53.749 C -8.574 55.229 -9.424 56.479 -10.684 57.329 L -10.684 60.329 L -6.824 60.329 C -4.564 58.239 -3.264 55.159 -3.264 51.509 Z"/>
-                <path fill="#34A853" d="M -14.754 63.239 C -11.514 63.239 -8.804 62.159 -6.824 60.329 L -10.684 57.329 C -11.764 58.049 -13.134 58.489 -14.754 58.489 C -17.884 58.489 -20.534 56.379 -21.484 53.529 L -25.464 53.529 L -25.464 56.619 C -23.494 60.539 -19.444 63.239 -14.754 63.239 Z"/>
-                <path fill="#FBBC05" d="M -21.484 53.529 C -21.734 52.809 -21.864 52.039 -21.864 51.239 C -21.864 50.439 -21.724 49.669 -21.484 48.949 L -21.484 45.859 L -25.464 45.859 C -26.284 47.479 -26.754 49.299 -26.754 51.239 C -26.754 53.179 -26.284 54.999 -25.464 56.619 L -21.484 53.529 Z"/>
-                <path fill="#EA4335" d="M -14.754 43.989 C -12.984 43.989 -11.404 44.599 -10.154 45.789 L -6.734 41.939 C -8.804 40.009 -11.514 38.989 -14.754 38.989 C -19.444 38.989 -23.494 41.689 -25.464 45.859 L -21.484 48.949 C -20.534 46.099 -17.884 43.989 -14.754 43.989 Z"/>
-              </g>
-            </svg>
+            <LogIn className="w-5 h-5" />
           )}
-          <span>Entrar com o Google</span>
+          <span>{loading ? 'Entrando...' : 'Entrar'}</span>
+        </button>
+      </form>
+
+      {/* Divider */}
+      <div className="flex items-center gap-4">
+        <div className="flex-1 h-px bg-zinc-800" />
+        <span className="text-[10px] font-black uppercase tracking-widest text-zinc-600">ou</span>
+        <div className="flex-1 h-px bg-zinc-800" />
+      </div>
+
+      {/* Google OAuth */}
+      <button
+        onClick={handleGoogleLogin}
+        disabled={googleLoading}
+        className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white hover:bg-zinc-200 text-black rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 group"
+      >
+        {googleLoading ? (
+          <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" />
+        ) : (
+          <svg viewBox="0 0 24 24" width="20" height="20" xmlns="http://www.w3.org/2000/svg">
+            <g transform="matrix(1, 0, 0, 1, 27.009001, -39.238998)">
+              <path fill="#4285F4" d="M -3.264 51.509 C -3.264 50.719 -3.334 49.969 -3.454 49.239 L -14.754 49.239 L -14.754 53.749 L -8.284 53.749 C -8.574 55.229 -9.424 56.479 -10.684 57.329 L -10.684 60.329 L -6.824 60.329 C -4.564 58.239 -3.264 55.159 -3.264 51.509 Z"/>
+              <path fill="#34A853" d="M -14.754 63.239 C -11.514 63.239 -8.804 62.159 -6.824 60.329 L -10.684 57.329 C -11.764 58.049 -13.134 58.489 -14.754 58.489 C -17.884 58.489 -20.534 56.379 -21.484 53.529 L -25.464 53.529 L -25.464 56.619 C -23.494 60.539 -19.444 63.239 -14.754 63.239 Z"/>
+              <path fill="#FBBC05" d="M -21.484 53.529 C -21.734 52.809 -21.864 52.039 -21.864 51.239 C -21.864 50.439 -21.724 49.669 -21.484 48.949 L -21.484 45.859 L -25.464 45.859 C -26.284 47.479 -26.754 49.299 -26.754 51.239 C -26.754 53.179 -26.284 54.999 -25.464 56.619 L -21.484 53.529 Z"/>
+              <path fill="#EA4335" d="M -14.754 43.989 C -12.984 43.989 -11.404 44.599 -10.154 45.789 L -6.734 41.939 C -8.804 40.009 -11.514 38.989 -14.754 38.989 C -19.444 38.989 -23.494 41.689 -25.464 45.859 L -21.484 48.949 C -20.534 46.099 -17.884 43.989 -14.754 43.989 Z"/>
+            </g>
+          </svg>
+        )}
+        <span>Entrar com o Google</span>
+      </button>
+
+      {/* Footer: Create Account */}
+      <div className="text-center pt-2">
+        <button
+          onClick={() => router.push('/register')}
+          className="text-zinc-500 text-xs font-bold uppercase tracking-widest hover:text-purple-400 transition-colors"
+        >
+          Não tem conta? <span className="text-purple-400 hover:text-purple-300">Criar agora</span>
         </button>
       </div>
     </div>

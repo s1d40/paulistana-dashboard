@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { fetchAllImages } from '@/services/google-sheets';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const images = await fetchAllImages();

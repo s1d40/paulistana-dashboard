@@ -1,4 +1,5 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
 import ChatPanel from '@/components/chat-panel';
 import { PenTool, ArrowLeft } from 'lucide-react';

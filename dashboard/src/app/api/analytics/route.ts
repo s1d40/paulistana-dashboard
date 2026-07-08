@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { BetaAnalyticsDataClient } from '@google-analytics/data';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   const propertyId = process.env.GA_PROPERTY_ID;
   const credentialsJson = process.env.GA4_SERVICE_ACCOUNT_JSON;

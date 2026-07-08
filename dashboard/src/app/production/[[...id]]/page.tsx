@@ -1,4 +1,5 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { usePresetStore, SystemMessageSession } from '@/store/presetStore';
@@ -9,18 +10,26 @@ import {
   Lock, Unlock, ChevronRight, ChevronDown, ChevronLeft, ShieldCheck,
   Music, Image as ImageIcon, Video, Maximize,
   Copy, Download, Share2, Calendar, ExternalLink,
-  Layers, Globe, CalendarDays, MoreHorizontal, Type, Smartphone, ListChecks, FolderKanban
+  Layers, Globe, CalendarDays, MoreHorizontal, Type, Smartphone, ListChecks, FolderKanban, Trash2, Edit3
 } from 'lucide-react';
 import ChatPanel from '@/components/chat-panel';
+import ArchitectChat from '@/components/floating-architect-chat';
 import PresetSelector from '@/components/preset-selector';
 import PromptEditor from '@/components/prompt-editor';
+import GlobalMediaConfig from '@/components/global-media-config';
 import AccountSelector from '@/components/account-selector';
 import ProductSelector from '@/components/product-selector';
-import { fetchProducts, fetchProductionLists, fetchProductionBatches, createProductionBatch, fetchContentPosts, fetchTable, fetchAccounts, fetchClients, GID_VIDEOS, GID_IMAGENS, GID_AUDIOS, Product, ProductionList, ProductionBatch, Account, Client, PostImage, PostAudio, PostVideo, PostVideoCena } from '@/services/supabase-service';
+// import FloatingArchitectChat from '@/components/floating-architect-chat';
+import { fetchProducts, fetchProductionLists, fetchProductionBatches, createProductionBatch, fetchContentPosts, fetchTable, fetchAccounts, fetchClients, GID_VIDEOS, GID_IMAGENS, GID_AUDIOS, Product, ProductionList, ProductionBatch, Account, Client, PostImage, PostAudio, PostVideo, PostVideoCena, updatePostInSupabase, clearMediaFromSupabase } from '@/services/supabase-service';
 import clsx from 'clsx';
 import { supabase } from '@/lib/supabase';
+import ProductionCard from '../components/ProductionCard';
+import PresetEditorModal from '@/components/preset-editor-modal';
+import ImageModelSelector from '@/components/image-model-selector';
+import { DEFAULT_IMAGE_MODEL, modelIdToUrl } from '@/lib/image-models';
+import DateTimePicker from '@/components/date-time-picker';
 
-interface ProductionItem {
+export interface ProductionItem {
   uuid: string;
   produto: string;
   slug: string;
@@ -34,13 +43,19 @@ interface ProductionItem {
   hashtags?: string;
   status_agendamento?: string;
   data_agendamento?: string;
+  statusDetalhe?: string;
   
   // Staging Area Flags
   hasScript?: boolean;
   scriptGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
+  captionsGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
   imagesGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
   audiosGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
   videoGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
+
+  // Strategy overrides
+  imageStrategy?: 'ai' | 'produto' | 'embalagem' | 'ambos';
+  imageModelOverride?: string;
 }
 
 import { useParams, useRouter } from 'next/navigation';
@@ -50,7 +65,7 @@ export default function ProductionStudioPage() {
   const router = useRouter();
   const routeId = params?.id?.[0] || null;
   
-  const { presets, activePresetId, updatePreset, setActivePreset } = usePresetStore();
+  const { presets, activePresetId, updatePreset, setActivePreset, initializePresets, createDraftPreset, refreshPreset, isLoading: isPresetLoading } = usePresetStore();
   const { generateSceneImage, generateSceneAudio, renderAllScenes, compileFinalVideo } = useProductionQueue();
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -72,18 +87,27 @@ export default function ProductionStudioPage() {
 
   // Single Production (Sandbox) State
   const [chatInput, setChatInput] = useState('');
-  const [currentSandboxProduct, setCurrentSandboxProduct] = useState<Product | null>(null);
+  const [isSandboxOpen, setIsSandboxOpen] = useState(false);
+  const [currentSandboxProduct, setCurrentSandboxProduct] = useState<any>(null);
   const [currentSandboxUuid, setCurrentSandboxUuid] = useState<string | null>(null);
   const [isSingleLoading, setIsSingleLoading] = useState(false);
 
+  // Fila para auto-produção após roteiro assíncrono
+  const [autoProduceQueue, setAutoProduceQueue] = useState<Set<string>>(new Set());
+
+  // Refs para controle de polling
+  const isFetchingRef = useRef(false);
+
   // UI States
   const [showConfig, setShowConfig] = useState(false);
-  const [isChatCollapsed, setIsChatCollapsed] = useState(true);
+  const [isChatCollapsed, setIsChatCollapsed] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
 
   // Publishing Context
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
+  const [batchImageModel, setBatchImageModel] = useState<string>('');
 
   // New States for Multi-Platform Publishing & Bulk Scheduling
   const [publishingStatus, setPublishingStatus] = useState<Record<string, Record<string, 'idle' | 'publishing' | 'published' | 'error'>>>({});
@@ -106,6 +130,17 @@ export default function ProductionStudioPage() {
       lastPromptPresetIdRef.current = activePresetId;
     }
   }, [activePresetId, activePreset?.prompt]);
+
+  useEffect(() => {
+    console.log("🚀 PRODUCTION PAGE MOUNTED! ACTIVE PRESET:", activePreset?.id);
+  }, [activePreset?.id]);
+
+  useEffect(() => {
+    if (presets.length === 0) {
+      console.log("🚀 PRODUCTION PAGE: No presets found in store. Initializing...");
+      initializePresets();
+    }
+  }, [presets.length, initializePresets]);
 
   // Estabilizar o handler de seleção para evitar loops
   const handleAccountSelect = useCallback((acc: Account, cli: Client | null) => {
@@ -157,7 +192,9 @@ export default function ProductionStudioPage() {
              });
           }
           if (foundBatch.preset_id) {
-             setActivePreset(foundBatch.preset_id);
+             createDraftPreset('general', foundBatch.preset_id).then(() => {
+                setActivePreset(foundBatch.preset_id || null);
+             });
           }
           // O useEffect de fetchLiveStatus vai sincronizar o status real depois!
         } else {
@@ -257,8 +294,57 @@ export default function ProductionStudioPage() {
   };
 
   const publishToAllPlatforms = async (postId: string) => {
-    // Call the unified publishing webhook once with platform: 'all' to avoid duplicate postings
-    await publishToPlatform(postId, 'all');
+    // Immediately mark all platforms as publishing for visual feedback
+    setPublishingStatus(prev => ({
+      ...prev,
+      [postId]: {
+        ...(prev[postId] || {}),
+        instagram: 'publishing',
+        youtube: 'publishing',
+        facebook: 'publishing',
+        all: 'publishing'
+      }
+    }));
+
+    try {
+      const res = await fetch('/api/content/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          postId,
+          accountId: selectedAccount?.id_conta,
+          platform: 'all'
+        })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Erro desconhecido');
+      }
+
+      setPublishingStatus(prev => ({
+        ...prev,
+        [postId]: {
+          instagram: 'published',
+          youtube: 'published',
+          facebook: 'published',
+          all: 'published'
+        }
+      }));
+    } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
+      console.error('Erro ao publicar em todos:', err);
+      setPublishingStatus(prev => ({
+        ...prev,
+        [postId]: {
+          ...(prev[postId] || {}),
+          instagram: 'error',
+          youtube: 'error',
+          facebook: 'error',
+          all: 'error'
+        }
+      }));
+      alert(`Erro ao disparar publicação: ${err.message}`);
+    }
   };
 
   const handleDownloadAll = async () => {
@@ -274,15 +360,21 @@ export default function ProductionStudioPage() {
     }
   };
 
-  const handlePublishAll = async () => {
+  const handlePublishAll = async (platform: string) => {
     const readyItems = productionItems.filter(item => item.status === 'Pronto');
     if (readyItems.length === 0) {
       alert('Nenhum vídeo pronto para publicar.');
       return;
     }
-    if (confirm(`Deseja publicar em massa ${readyItems.length} posts para todas as redes sociais configuradas?`)) {
+    
+    let platformName = 'todas as redes';
+    if (platform === 'youtube') platformName = 'o YouTube';
+    if (platform === 'instagram') platformName = 'o Instagram';
+    if (platform === 'facebook') platformName = 'o Facebook';
+
+    if (confirm(`Deseja publicar em massa ${readyItems.length} posts para ${platformName}?`)) {
       for (const item of readyItems) {
-        await publishToAllPlatforms(item.uuid);
+        await publishToPlatform(item.uuid, platform);
       }
     }
   };
@@ -293,24 +385,7 @@ export default function ProductionStudioPage() {
       return;
     }
     try {
-      // 1. Atualiza banco
-      await supabase.from('posts').update({
-        data_agendamento: new Date(dateStr).toISOString(),
-        status_agendamento: 'Agendado'
-      }).eq('id_post', postId);
-
-      setProductionItems(prev => prev.map(item => {
-        if (item.uuid === postId) {
-          return {
-            ...item,
-            status_agendamento: 'Agendado',
-            data_agendamento: new Date(dateStr).toISOString()
-          };
-        }
-        return item;
-      }));
-
-      // 2. Dispara Webhook
+      // 1. Dispara Webhook primeiro (Se falhar, não salva no banco)
       const res = await fetch('/api/content/publish', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -322,7 +397,27 @@ export default function ProductionStudioPage() {
         })
       });
 
-      if (!res.ok) throw new Error('Webhook falhou');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Webhook falhou');
+      }
+
+      // 2. Atualiza banco apenas se o webhook deu certo
+      await supabase.from('posts').update({
+        data_agendamento: new Date(dateStr).toISOString(),
+        status_agendamento: 'agendado'
+      }).eq('id_post', postId);
+
+      setProductionItems(prev => prev.map(item => {
+        if (item.uuid === postId) {
+          return {
+            ...item,
+            status_agendamento: 'agendado',
+            data_agendamento: new Date(dateStr).toISOString()
+          };
+        }
+        return item;
+      }));
 
       alert('Publicação agendada com sucesso e enviada ao n8n!');
     } catch (err) {
@@ -342,7 +437,7 @@ export default function ProductionStudioPage() {
       return;
     }
 
-    if (confirm(`Deseja agendar sequencialmente ${readyItems.length} posts a cada ${bulkInterval} horas a partir de ${new Date(bulkStartDate).toLocaleString()}?`)) {
+    if (confirm(`Deseja agendar sequencialmente ${readyItems.length} posts a cada ${bulkInterval} horas a partir de ${new Date(bulkStartDate).toLocaleDateString('pt-BR')} às ${new Date(bulkStartDate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}?`)) {
       const currentStart = new Date(bulkStartDate);
       let successCount = 0;
       
@@ -353,26 +448,14 @@ export default function ProductionStudioPage() {
         try {
           await supabase.from('posts').update({
             data_agendamento: scheduleTime.toISOString(),
-            status_agendamento: 'Agendado'
+            status_agendamento: 'agendado'
           }).eq('id_post', item.uuid);
 
           setProductionItems(prev => prev.map(pi => pi.uuid === item.uuid ? {
             ...pi,
-            status_agendamento: 'Agendado',
+            status_agendamento: 'agendado',
             data_agendamento: scheduleTime.toISOString()
           } : pi));
-
-          // Enviar ao n8n
-          await fetch('/api/content/publish', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              postId: item.uuid,
-              accountId: selectedAccount.id_conta,
-              platform: 'all',
-              scheduled_for: scheduleTime.toISOString()
-            })
-          });
           
           successCount++;
         } catch (e) {
@@ -380,7 +463,7 @@ export default function ProductionStudioPage() {
         }
       }
       
-      alert(`Agendamento em massa concluído! ${successCount}/${readyItems.length} enviados com sucesso.`);
+      alert(`Agendamento em massa concluído! ${successCount}/${readyItems.length} salvos no banco. O n8n verificará e fará a postagem automaticamente.`);
     }
   };
 
@@ -413,44 +496,118 @@ export default function ProductionStudioPage() {
     newPrompt = newPrompt.replace(/\[VISUAL\]/gi, product.Restricao_Visual || 'Nenhuma');
 
     setChatInput(newPrompt);
+    setChatInput(newPrompt);
   };
 
-  // --- REAL-TIME POLLING LOGIC ---
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
+  const uuidsRef = useRef<string[]>([]);
+  const autoProduceQueueRef = useRef<Set<string>>(autoProduceQueue);
 
-    if (productionItems.length > 0 && (status === 'running' || status === 'success')) {
-      interval = setInterval(async () => {
-        try {
-          // Buscar todos os posts, imagens, áudios e vídeos finais
-          const [allPosts, allImages, allAudios, allVideos] = await Promise.all([
-            fetchContentPosts(),
-            fetchTable<PostImage>(GID_IMAGENS),
-            fetchTable<PostAudio>(GID_AUDIOS),
-            fetchTable<PostVideo>(GID_VIDEOS)
+  useEffect(() => {
+    uuidsRef.current = productionItems.map(i => i.uuid);
+  }, [productionItems]);
+
+  useEffect(() => {
+    autoProduceQueueRef.current = autoProduceQueue;
+  }, [autoProduceQueue]);
+
+  // --- REAL-TIME POLLING LOGIC ---
+  const fetchUpdatedState = useCallback(async (payload?: any) => {
+      try {
+        const uuids = uuidsRef.current;
+        if (uuids.length === 0) return;
+        
+        // Se foi um evento do realtime para um post específico, checa se ele está na nossa tela
+        if (payload && payload.new && payload.new.id_post) {
+           if (!uuids.includes(payload.new.id_post)) return;
+        }
+
+          const [
+            { data: allPosts },
+            { data: allImages },
+            { data: allAudios },
+            { data: allVideos }
+          ] = await Promise.all([
+            supabase.from('posts').select('id_post, status, roteiro_gerado, titulo_post, captions, hashtags, status_agendamento, data_agendamento').in('id_post', uuids),
+            supabase.from('imagens').select('id_post, image_url, url_imagem_fundo').in('id_post', uuids),
+            supabase.from('audios').select('id_post, audio_url').in('id_post', uuids),
+            supabase.from('videos').select('id_post, video_final_url').in('id_post', uuids)
           ]);
 
+          const posts = allPosts || [];
+          const images = allImages || [];
+          const audios = allAudios || [];
+          const videos = allVideos || [];
+
+          setProcessingItems(prev => {
+             const next = new Set(prev);
+             let changed = false;
+             posts.forEach(p => {
+               if (p.status === 'Concluído' || p.status === 'Erro na Produção') {
+                  if (next.has(p.id_post)) {
+                     next.delete(p.id_post);
+                     changed = true;
+                  }
+               }
+             });
+             videos.forEach(v => {
+               if (v.video_final_url) {
+                  if (next.has(v.id_post)) {
+                     next.delete(v.id_post);
+                     changed = true;
+                  }
+               }
+             });
+             return changed ? next : prev;
+          });
+
           setProductionItems(prevItems => prevItems.map(item => {
-            const livePost = allPosts.find(p => p.id_post === item.uuid);
-            const liveImages = allImages.filter(img => img.id_post === item.uuid && (img.image_url || img.url_imagem_fundo));
-            const liveAudios = allAudios.filter(audio => audio.id_post === item.uuid && audio.audio_url);
-            const liveVideo = allVideos.find(v => v.id_post === item.uuid);
+            const livePost = posts.find(p => p.id_post === item.uuid);
+            const liveImages = images.filter(img => img.id_post === item.uuid && (img.image_url || img.url_imagem_fundo));
+            const liveAudios = audios.filter(audio => audio.id_post === item.uuid && audio.audio_url);
+            const liveVideo = videos.find(v => v.id_post === item.uuid && v.video_final_url);
 
             let newStatus: ProductionItem['status'] = item.status;
+            const dbStatus = livePost?.status || '';
             
-            if (livePost?.status === 'Concluído' || liveVideo) {
+            if (dbStatus === 'Concluído' || dbStatus.startsWith('Concluído') || liveVideo?.video_final_url) {
               newStatus = 'Pronto';
-            } else if (livePost?.status === 'Produzir' || livePost?.status === 'Processando' || processingItems.has(item.uuid)) {
-              newStatus = 'Processando';
-            } else if (livePost?.status === 'Erro na Produção' && !processingItems.has(item.uuid)) {
+            } else if (dbStatus === 'Erro na Produção') {
               newStatus = 'Erro';
+            } else if (dbStatus === 'Produzir' || dbStatus === 'Processando' || dbStatus.startsWith('Processando') || dbStatus.startsWith('Compilando') || dbStatus.startsWith('Fazendo upload') || dbStatus.startsWith('Gerando')) {
+              newStatus = 'Processando';
             } else if (livePost) {
               newStatus = 'Aguardando';
             }
 
+            const hasValidScript = livePost?.roteiro_gerado && 
+                                   (typeof livePost.roteiro_gerado === 'string' 
+                                      ? livePost.roteiro_gerado !== '{"status":"Gerando..."}' && !livePost.roteiro_gerado.includes('"status": "Gerando..."')
+                                      : !livePost.roteiro_gerado.status);
+
+            const newScriptGeneratingStatus = hasValidScript ? 'success' : (dbStatus === 'Processando Roteiro' || dbStatus.startsWith('Processando') ? 'generating' : (dbStatus === 'Erro na Produção' ? 'error' : item.scriptGeneratingStatus));
+
+            // Auto-produce logic: se o script acabou de ficar pronto e estava na fila de auto-produção
+            if (hasValidScript && !item.hasScript && autoProduceQueueRef.current.has(item.uuid)) {
+              supabase.from('posts').update({ status: 'Produzir' }).eq('id_post', item.uuid).then(({ error }) => {
+                if (!error) {
+                  setAutoProduceQueue(prev => {
+                    const next = new Set(prev);
+                    next.delete(item.uuid);
+                    return next;
+                  });
+                }
+              });
+              // Para a interface não piscar em 'Aguardando', já forçamos visualmente para Processando
+              newStatus = 'Processando';
+            }
+
+            const hasValidCaptions = livePost?.captions && livePost.captions.length > 0;
+            const newCaptionsGeneratingStatus = hasValidCaptions ? 'success' : item.captionsGeneratingStatus;
+
             return { 
               ...item, 
               status: newStatus,
+              statusDetalhe: (newStatus === 'Processando' && dbStatus !== 'Produzir' && dbStatus !== 'Processando') ? dbStatus : undefined,
               videoUrl: liveVideo?.video_final_url,
               images: liveImages.map(img => img.image_url || img.url_imagem_fundo || ''),
               audios: liveAudios.map(audio => audio.audio_url || ''),
@@ -458,19 +615,42 @@ export default function ProductionStudioPage() {
               captions: livePost?.captions || item.captions,
               hashtags: livePost?.hashtags || item.hashtags,
               status_agendamento: livePost?.status_agendamento || item.status_agendamento,
-              data_agendamento: livePost?.data_agendamento || item.data_agendamento
+              data_agendamento: livePost?.data_agendamento || item.data_agendamento,
+              hasScript: hasValidScript ? true : item.hasScript,
+              scriptGeneratingStatus: newScriptGeneratingStatus,
+              captionsGeneratingStatus: newCaptionsGeneratingStatus
             };
           }));
         } catch (err) {
-          console.error('Erro no polling de produção:', err);
+          console.error('Erro na atualização realtime:', err);
         }
-      }, 5000); // Polling a cada 5 segundos
+    }, []);
+
+  useEffect(() => {
+    // Busca a mídia dos posts recém carregados
+    if (productionItems.length > 0) {
+      fetchUpdatedState();
     }
+  }, [productionItems.length, fetchUpdatedState]);
+
+  useEffect(() => {
+    const channel = supabase.channel('production_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, fetchUpdatedState)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'videos' }, fetchUpdatedState)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'imagens' }, fetchUpdatedState)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'audios' }, fetchUpdatedState)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_lists' }, () => {
+        fetchProductionLists().then(setProductionLists);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'production_batches' }, () => {
+        fetchProductionBatches().then(setProductionBatches);
+      })
+      .subscribe();
 
     return () => {
-      if (interval) clearInterval(interval);
+      supabase.removeChannel(channel);
     };
-  }, [productionItems.length, status]);
+  }, [fetchUpdatedState]); // Canal é recriado de forma segura apenas se o callback mudar (o que não acontece pois está memoizado)
 
   const handleSandboxToolSuccess = async (toolName: string) => {
     if (toolName !== 'save_single_script' || !currentSandboxProduct || !currentSandboxUuid) return;
@@ -565,8 +745,21 @@ export default function ProductionStudioPage() {
   };
 
   // --- SHARED ORCHESTRATION PIPELINE ---
-  const normalizeScript = (rawScript: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
+  // Cascade: itemOverride → batchImageModel → preset.config.image_model → DEFAULT
+  const normalizeScript = (rawScript: any /* eslint-disable-line @typescript-eslint/no-explicit-any */, itemImageModelOverride?: string) => {
     const script = { ...rawScript };
+    const presetImageModel = (activePreset as any)?.config?.image_model || DEFAULT_IMAGE_MODEL;
+    // Resolve cascade: most specific wins
+    const resolvedImageModel = itemImageModelOverride || batchImageModel || presetImageModel;
+    const globalVoiceSettings = (activePreset as any)?.config?.voice_settings || {
+      model_id: "eleven_multilingual_v2",
+      stability: 0.7,
+      similarity_boost: 0.75,
+      style: 0.15,
+      use_speaker_boost: true,
+      speed: 1.10
+    };
+
     if (script.cenas && Array.isArray(script.cenas)) {
       script.cenas = script.cenas.map((cena: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
         const updatedCena = { 
@@ -575,7 +768,7 @@ export default function ProductionStudioPage() {
         };
         if (!updatedCena.replicate) {
           updatedCena.replicate = {
-            model_url: 'https://api.replicate.com/v1/models/google/nano-banana/predictions',
+            model_url: modelIdToUrl(resolvedImageModel),
             input: {
               prompt: updatedCena.prompt_visual,
               negative_prompt: updatedCena.prompt_negativo,
@@ -583,20 +776,19 @@ export default function ProductionStudioPage() {
               output_format: 'jpg'
             }
           };
+        } else {
+          // Even if replicate already exists, update model_url with the cascade resolution
+          updatedCena.replicate = {
+            ...updatedCena.replicate,
+            model_url: modelIdToUrl(resolvedImageModel),
+          };
         }
         return updatedCena;
       });
     }
-    const defaultVoice = {
-      model_id: "eleven_multilingual_v2",
-      stability: 0.7,
-      similarity_boost: 0.75,
-      style: 0.15,
-      use_speaker_boost: true,
-      speed: 1.10
-    };
+    
     if (!script.voice_settings) {
-      script.voice_settings = defaultVoice;
+      script.voice_settings = globalVoiceSettings;
     }
     return script;
   };
@@ -691,9 +883,35 @@ export default function ProductionStudioPage() {
   // --- STAGING AREA E FUNÇÕES GRANULARES ---
 
   const handleLoadStagingArea = async (testOnly: boolean = false, directListId?: string) => {
-    let preset = activePreset || presets[0];
+    const targetListId = directListId || selectedListId;
+    
+    let listObj = productionLists.find(l => l.id === targetListId);
+    
+    let preset = activePreset;
+    let draftIdDebug = null;
+    let freshPresetsDebug = 0;
+    
+    if (dataSource === 'lists' && listObj && listObj.preset_id) {
+       // Cria um draft efêmero clonado do preset original para que a IA não altere o preset global da loja
+       // O ID da lista é usado como ID do draft, para que o mesmo draft seja reutilizado ao recarregar a lista
+       const draftId = await createDraftPreset(listObj.preset_id.includes('historico') ? 'general' : 'general', listObj.id, listObj.preset_id);
+       draftIdDebug = draftId;
+       const freshPresets = usePresetStore.getState().presets;
+       freshPresetsDebug = freshPresets.length;
+       if (draftId) {
+         preset = freshPresets.find(p => p.id === draftId) || activePreset || freshPresets[0];
+         setActivePreset(draftId);
+       } else {
+         preset = freshPresets.find(p => p.id === listObj.preset_id) || activePreset || freshPresets[0];
+         if (preset && preset.id !== activePreset?.id) setActivePreset(preset.id);
+       }
+    } else {
+       preset = activePreset || usePresetStore.getState().presets[0];
+       freshPresetsDebug = usePresetStore.getState().presets.length;
+    }
+
     if (!preset) {
-       alert("Nenhum Preset disponível para inicializar.");
+       alert(`Nenhum Preset disponível para inicializar.\nDEBUG INFO:\ndataSource: ${dataSource}\nlistObj found: ${!!listObj}\npreset_id: ${listObj?.preset_id}\ndraftId: ${draftIdDebug}\nfreshPresets length: ${freshPresetsDebug}`);
        return;
     }
     
@@ -705,7 +923,7 @@ export default function ProductionStudioPage() {
     }
     
     let items: ProductionItem[] = [];
-    const targetListId = directListId || selectedListId;
+    
     
     if (dataSource === 'products') {
       if (products.length === 0) return;
@@ -819,19 +1037,22 @@ export default function ProductionStudioPage() {
     try {
       const uuids = items.map(i => i.uuid);
       // 1. Puxar Posts
-      const { data: posts } = await supabase.from('posts').select('id_post, roteiro_json, status, url_video_pronto').in('id_post', uuids);
+      const { data: posts } = await supabase.from('posts').select('id_post, roteiro_gerado, status').in('id_post', uuids);
       // 2. Puxar Imagens
       const { data: images } = await supabase.from('imagens').select('id_post, image_url').in('id_post', uuids);
       // 3. Puxar Áudios
       const { data: audios } = await supabase.from('audios').select('id_post, audio_url').in('id_post', uuids);
+      // 4. Puxar Videos
+      const { data: videos } = await supabase.from('videos').select('id_post, video_final_url').in('id_post', uuids);
 
       items = items.map(item => {
         const post = posts?.find(p => p.id_post === item.uuid);
         const postImages = images?.filter(img => img.id_post === item.uuid) || [];
         const postAudios = audios?.filter(aud => aud.id_post === item.uuid) || [];
+        const postVideo = videos?.find(vid => vid.id_post === item.uuid);
 
         let statusAtual: 'Aguardando' | 'Processando' | 'Pronto' | 'Erro' = 'Aguardando';
-        if (post?.status === 'Concluído' || post?.url_video_pronto) {
+        if (post?.status === 'Concluído' || postVideo?.video_final_url) {
            statusAtual = 'Pronto';
         } else if (post?.status === 'Produzir' || post?.status === 'Processando') {
            statusAtual = 'Processando';
@@ -842,8 +1063,8 @@ export default function ProductionStudioPage() {
         return {
           ...item,
           status: statusAtual,
-          hasScript: !!post?.roteiro_json,
-          videoUrl: post?.url_video_pronto,
+          hasScript: !!post?.roteiro_gerado,
+          videoUrl: postVideo?.video_final_url,
           images: postImages.map(img => img.image_url),
           audios: postAudios.map(aud => aud.audio_url)
         };
@@ -869,13 +1090,22 @@ export default function ProductionStudioPage() {
     setProductionItems(prev => prev.map(i => i.uuid === uuid ? { ...i, ...updates } : i));
   };
 
+  const getAssetUrl = (folder: string, slug: string | null) => {
+    if (!slug) return null;
+    const fileName = slug.includes('.') ? slug : `${slug}.png`;
+    return `https://tvszuzokdrcyemwsvtfs.supabase.co/storage/v1/object/public/images/${folder}/${fileName}`;
+  };
+
   const handleGenerateScript = async (item: ProductionItem) => {
     if (!activePreset || !selectedAccount) return;
     
     updateItemState(item.uuid, { scriptGeneratingStatus: 'generating' });
 
     try {
-      let newPrompt = item.customPrompt || activePreset.prompt;
+      let newPrompt = activePreset.prompt;
+      let imgRealUrl: string | undefined;
+      let imgEmbalagemUrl: string | undefined;
+      
       if (dataSource === 'products') {
         const productData = products.find(p => p.slug_imagem_real === item.slug);
         newPrompt = newPrompt.replace(/\[PRODUTO\]/gi, item.produto);
@@ -887,37 +1117,25 @@ export default function ProductionStudioPage() {
         if (productData) {
           newPrompt = newPrompt.replace(/\[NARRATIVA\]/gi, productData.Restricao_Narrativa || 'Nenhuma');
           newPrompt = newPrompt.replace(/\[VISUAL\]/gi, productData.Restricao_Visual || 'Nenhuma');
+          if (productData.slug_imagem_real) {
+            imgRealUrl = getAssetUrl('produtos_reais', productData.slug_imagem_real) || undefined;
+          }
+          if (productData.slug_embalagem) {
+            imgEmbalagemUrl = getAssetUrl('embalagens', productData.slug_embalagem) || undefined;
+          }
         }
       }
-
-      const response = await fetch('/api/chat/roteirista', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_prompt: newPrompt,
-          system_message: consolidatedSystemMessage,
-          config: {
-            model: (activePreset as any /* eslint-disable-line @typescript-eslint/no-explicit-any */)?.config?.model || 'gpt-5.4',
-            temperature: (activePreset as any /* eslint-disable-line @typescript-eslint/no-explicit-any */)?.config?.temperature || 0.7,
-            prompt: (activePreset as any /* eslint-disable-line @typescript-eslint/no-explicit-any */)?.config?.prompt || newPrompt
-          }
-        }),
-      });
-
-      if (!response.ok) throw new Error(`Erro na geração de roteiro para ${item.produto}`);
-      const { script: rawScript } = await response.json();
-      const generatedScript = normalizeScript(rawScript);
 
       const initPostPayload: Record<string, any> = { 
         action: 'init_post',
         id_post: item.uuid,
-        tema_post: generatedScript.tema || `Vídeo: ${item.produto}`,
-        titulo_post: generatedScript.titulo_otimizado || item.tituloOtimizado || item.produto,
-        roteiro_gerado: JSON.stringify(generatedScript),
-        status: 'Aguardando Revisão',
+        tema_post: item.produto,
+        titulo_post: item.tituloOtimizado || item.produto,
+        roteiro_gerado: '{"status":"Gerando..."}',
+        status: 'Processando Roteiro',
         id_conta: selectedAccount.id_conta,
-        captions: item.captions || generatedScript.captions || '',
-        hashtags: item.hashtags || generatedScript.hashtags || ''
+        captions: item.captions || '',
+        hashtags: item.hashtags || ''
       };
 
       if (dataSource === 'lists' && selectedListId) {
@@ -930,13 +1148,106 @@ export default function ProductionStudioPage() {
         body: JSON.stringify(initPostPayload),
       });
 
-      if (!prodRes.ok) throw new Error(`Erro ao salvar roteiro no banco`);
+      if (!prodRes.ok) throw new Error(`Erro ao inicializar post no banco`);
 
-      updateItemState(item.uuid, { scriptGeneratingStatus: 'success', hasScript: true});
+      const response = await fetch('/api/chat/roteirista', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_post: item.uuid,
+          user_prompt: item.customPrompt ? `${item.customPrompt}\nTema do vídeo: ${item.produto}` : `Por favor, crie o roteiro baseando-se no tema: "${item.produto}".`,
+          system_message: consolidatedSystemMessage,
+          image_url: imgRealUrl,
+          image_url_packaging: imgEmbalagemUrl,
+          image_strategy: item.imageStrategy || 'ai',
+          config: {
+            model: (activePreset as any)?.config?.model || 'gpt-4o',
+            temperature: (activePreset as any)?.config?.temperature || 0.7,
+            image_model: item.imageModelOverride || batchImageModel || (activePreset as any)?.config?.image_model || DEFAULT_IMAGE_MODEL,
+            voice_settings: (activePreset as any)?.config?.voice_settings || undefined,
+            prompt: newPrompt
+          }
+        }),
+      });
+
+      if (!response.ok) throw new Error(`Erro ao disparar webhook do roteirista para ${item.produto}`);
+
+      // We DO NOT await the script parsing here because n8n is async and will return 200 OK immediately
+      // The polling loop will update hasScript and scriptGeneratingStatus when n8n updates Supabase!
+
+      // -- NOVA INTEGRAÇÃO: Dispara a geração de Legendas e Hashtags em background --
+      updateItemState(item.uuid, { captionsGeneratingStatus: 'generating' });
+      fetch('/api/chat/legenda', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_post: item.uuid,
+          tema_post: item.produto,
+          user_prompt: item.customPrompt,
+          system_message: consolidatedSystemMessage
+        })
+      })
+      .then(res => res.json())
+      .then(async data => {
+        if (data.success && data.data) {
+          const captions = data.data.captions || '';
+          const hashtags = data.data.hashtags || '';
+          
+          if (captions || hashtags) {
+            // Se respondeu de forma síncrona (com os dados), atualizamos imediatamente.
+            // Update local state and supabase!
+            updateItemState(item.uuid, { captions, hashtags, captionsGeneratingStatus: 'success' });
+            await updatePostInSupabase(item.uuid, { captions, hashtags });
+          }
+          // Se não veio, assumimos que o n8n vai atualizar de forma assíncrona (SQL Node).
+          // O fetchUpdatedState (Supabase Realtime) vai cuidar de jogar pra success.
+        } else {
+           updateItemState(item.uuid, { captionsGeneratingStatus: 'error' });
+        }
+      })
+      .catch(err => {
+         console.error('Falha ao gerar legenda background:', err);
+         updateItemState(item.uuid, { captionsGeneratingStatus: 'error' });
+      });
+      
+
     } catch (err) {
       console.error(err);
       updateItemState(item.uuid, { scriptGeneratingStatus: 'error' });
       alert(`Falha ao gerar roteiro para ${item.produto}`);
+    }
+  };
+
+  const handleDiscardItem = async (uuid: string) => {
+    if (!window.confirm('Deseja realmente descartar este conteúdo? O roteiro e os arquivos de mídia gerados não poderão ser recuperados.')) return;
+    
+    updateItemState(uuid, {
+      status: 'Aguardando',
+      hasScript: false,
+      videoUrl: undefined,
+      images: [],
+      audios: [],
+      scriptGeneratingStatus: 'idle',
+      imagesGeneratingStatus: 'idle',
+      audiosGeneratingStatus: 'idle',
+      videoGeneratingStatus: 'idle',
+      captions: undefined,
+      hashtags: undefined
+    });
+
+    try {
+      await updatePostInSupabase(uuid, {
+        status: 'Aguardando Revisão',
+        roteiro_gerado: null as any,
+        captions: null as any,
+        hashtags: null as any,
+        images_status: 'Pendente',
+        audio_status: 'Pendente',
+        video_status: 'Pendente'
+      });
+      await clearMediaFromSupabase(uuid);
+    } catch (err) {
+      console.error('Erro ao descartar item:', err);
     }
   };
 
@@ -1002,7 +1313,11 @@ export default function ProductionStudioPage() {
       updateItemState(item.uuid, { status: 'Processando' });
 
       if (!item.hasScript) {
-        await handleGenerateScript(item);
+        setAutoProduceQueue(prev => new Set(prev).add(item.uuid));
+        if (item.scriptGeneratingStatus !== 'generating') {
+          await handleGenerateScript(item);
+        }
+        return; // Interrompe aqui. O Polling de 5s vai acionar o 'Produzir' automaticamente quando o webhook finalizar.
       }
       
       const { error } = await supabase
@@ -1107,6 +1422,43 @@ export default function ProductionStudioPage() {
             </div>
           )}
           
+          {/* 🚀 GERAR TODOS Button */}
+          {isDashboardView && productionItems.length > 0 && (() => {
+            const pendingItems = productionItems.filter(i => i.status !== 'Pronto' && i.status !== 'Processando' && i.status !== 'Erro');
+            const processingCount = productionItems.filter(i => i.status === 'Processando').length;
+            const isAllDone = pendingItems.length === 0 && processingCount === 0;
+            const isGenerating = processingCount > 0;
+            return (
+              <button
+                onClick={async () => {
+                  if (!confirm(`Deseja iniciar a produção de ${pendingItems.length} vídeo(s) simultaneamente?`)) return;
+                  for (const item of pendingItems) {
+                    handleGenerateAll(item);
+                    // Small delay to avoid hammering the API
+                    await new Promise(r => setTimeout(r, 500));
+                  }
+                }}
+                disabled={pendingItems.length === 0}
+                className={clsx(
+                  "flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-lg",
+                  isAllDone
+                    ? "bg-emerald-600 text-white cursor-default"
+                    : isGenerating && pendingItems.length === 0
+                    ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                    : "bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white hover:scale-105 shadow-purple-600/20"
+                )}
+              >
+                {isAllDone ? (
+                  <><CheckCircle2 className="w-4 h-4" /> Todos Prontos</>
+                ) : isGenerating && pendingItems.length === 0 ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> {processingCount} Processando...</>
+                ) : (
+                  <><Sparkles className="w-4 h-4" /> Gerar Todos ({pendingItems.length})</>
+                )}
+              </button>
+            );
+          })()}
+
           <div className="h-8 w-px bg-zinc-200 dark:border-zinc-800" />
           
           <div className="flex flex-col items-end">
@@ -1163,7 +1515,19 @@ export default function ProductionStudioPage() {
                   )}
                 </div>
 
-                <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800 flex justify-center">
+                <div className="pt-6 border-t border-zinc-200 dark:border-zinc-800 flex flex-col sm:flex-row items-center justify-between gap-6">
+                   <div className="w-full sm:w-80 text-left bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block mb-2">Conta de Publicação</label>
+                     <AccountSelector onSelect={handleAccountSelect} placement="top" />
+                   </div>
+                   <div className="w-full sm:w-80 text-left bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-3">
+                     <ImageModelSelector 
+                       value={batchImageModel || (activePreset as any)?.config?.image_model || DEFAULT_IMAGE_MODEL}
+                       onChange={setBatchImageModel}
+                       label="Modelo de Imagem (Lote)"
+                       showDescription={false}
+                     />
+                   </div>
                    <button
                      onClick={async () => {
                         if (tempSelectedListId) {
@@ -1171,7 +1535,7 @@ export default function ProductionStudioPage() {
                            await handleLoadStagingArea(false, tempSelectedListId);
                         }
                      }}
-                     disabled={!tempSelectedListId || isLoading}
+                     disabled={!tempSelectedListId || isLoading || isPresetLoading || !selectedAccount}
                      className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-300 disabled:dark:bg-zinc-800 disabled:text-zinc-500 text-white rounded-2xl font-black uppercase tracking-widest text-sm shadow-xl hover:-translate-y-1 transition-all flex items-center gap-2"
                    >
                      {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Package className="w-5 h-5" />}
@@ -1224,16 +1588,42 @@ export default function ProductionStudioPage() {
                       <div className="grid grid-cols-2 gap-2">
                         <button 
                           onClick={handleDownloadAll}
-                          className="px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-900/20"
+                          className="px-3 py-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-900/20 col-span-2"
                         >
                           <Download className="w-3.5 h-3.5" /> Baixar Tudo
                         </button>
-                        <button 
-                          onClick={handlePublishAll}
-                          className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-500 hover:to-violet-600 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1.5 shadow-md shadow-indigo-900/20"
-                        >
-                          <Share2 className="w-3.5 h-3.5" /> Postar Todos
-                        </button>
+                        
+                        <div className="col-span-2 space-y-2 pt-2 pb-2">
+                          <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1">
+                            <Share2 className="w-3 h-3 text-indigo-400" /> Disparar Imediatamente
+                          </span>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button 
+                              onClick={() => handlePublishAll('instagram')}
+                              className="px-2 py-2 bg-[#E1306C] hover:bg-[#C13584] text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1 shadow-md shadow-pink-900/20"
+                            >
+                              Postar Todos: Instagram
+                            </button>
+                            <button 
+                              onClick={() => handlePublishAll('facebook')}
+                              className="px-2 py-2 bg-[#1877F2] hover:bg-[#0C63D4] text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1 shadow-md shadow-blue-900/20"
+                            >
+                              Postar Todos: Facebook
+                            </button>
+                            <button 
+                              onClick={() => handlePublishAll('youtube')}
+                              className="px-2 py-2 bg-[#FF0000] hover:bg-[#CC0000] text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1 shadow-md shadow-red-900/20"
+                            >
+                              Postar Todos: YouTube
+                            </button>
+                            <button 
+                              onClick={() => handlePublishAll('all')}
+                              className="px-2 py-2 bg-gradient-to-r from-indigo-600 to-violet-700 hover:from-indigo-500 hover:to-violet-600 text-white rounded-xl text-[8px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-1 shadow-md shadow-indigo-900/20"
+                            >
+                              Postar Todos: (Todas)
+                            </button>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="space-y-2 pt-2 border-t border-zinc-800">
@@ -1244,11 +1634,10 @@ export default function ProductionStudioPage() {
                         <div className="grid grid-cols-2 gap-2">
                           <div className="flex flex-col gap-1">
                             <label className="text-[8px] font-bold text-zinc-500 uppercase">Data de Início</label>
-                            <input 
-                              type="datetime-local" 
+                            <DateTimePicker
                               value={bulkStartDate}
-                              onChange={(e) => setBulkStartDate(e.target.value)}
-                              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-1.5 text-[9px] text-zinc-300 outline-none"
+                              onChange={setBulkStartDate}
+                              dark={true}
                             />
                           </div>
                           
@@ -1288,7 +1677,6 @@ export default function ProductionStudioPage() {
                       const activeTab = activeCardTabs[item.uuid] || 'video';
                       const setCardTab = (tab: 'video' | 'caption' | 'publish' | 'schedule') => setActiveCardTabs(prev => ({ ...prev, [item.uuid]: tab }));
                       
-                      // Progress calculation
                       let progress = 5;
                       if (item.hasScript) progress = 25;
                       if ((item.images?.length ?? 0) > 0) progress = 50;
@@ -1296,230 +1684,27 @@ export default function ProductionStudioPage() {
                       if (item.status === 'Pronto') progress = 100;
 
                       return (
-                      <div key={item.uuid} className={clsx(
-                        "rounded-3xl border transition-all shadow-xl overflow-hidden backdrop-blur-md",
-                        item.status === 'Pronto' 
-                          ? "bg-white/80 dark:bg-zinc-900/80 border-emerald-500/30 hover:shadow-emerald-500/10" 
-                          : "bg-white/60 dark:bg-zinc-900/60 border-zinc-200/50 dark:border-zinc-800/50 hover:border-indigo-500/30"
-                      )}>
-                        {/* Progress Bar Top */}
-                        <div className="w-full h-1 bg-zinc-100 dark:bg-zinc-800">
-                          <div className={clsx("h-full transition-all duration-1000 ease-in-out", item.status === 'Pronto' ? "bg-emerald-500" : "bg-indigo-500")} style={{ width: `${progress}%` }} />
-                        </div>
-                        
-                        <div className="p-5 space-y-5">
-                          <div className="flex items-start justify-between">
-                            <div className="flex gap-4 items-center">
-                               <div className={clsx(
-                                 "w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner transition-all bg-cover bg-center overflow-hidden shrink-0 border border-zinc-200/50 dark:border-zinc-800/50",
-                                 (item.images?.length ?? 0) > 0 ? "" :
-                                 item.status === 'Pronto' 
-                                   ? "bg-gradient-to-br from-emerald-400 to-emerald-600 text-white shadow-emerald-500/30" 
-                                   : "bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-zinc-800 dark:to-zinc-900 text-zinc-500 dark:text-zinc-400"
-                               )}
-                               style={{
-                                 backgroundImage: (item.images?.length ?? 0) > 0 ? `url(${item.images![0]})` : undefined
-                               }}
-                               >
-                                  {(item.images?.length ?? 0) === 0 && (
-                                    item.status === 'Pronto' ? <CheckCircle2 className="w-6 h-6" /> : <Package className="w-6 h-6" />
-                                  )}
-                               </div>
-                               <div>
-                                 <h4 className="text-sm font-black text-zinc-900 dark:text-white uppercase tracking-tight leading-none mb-1">{item.produto}</h4>
-                                 <p className="text-[10px] font-mono text-zinc-400 tracking-wider">ID: {item.uuid.substring(0,12)}</p>
-                               </div>
-                            </div>
-                            
-                            <span className={clsx(
-                              "text-[9px] font-black uppercase px-3 py-1 rounded-full border shadow-sm backdrop-blur-sm",
-                              item.status === 'Pronto'
-                                ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
-                                : item.status === 'Processando'
-                                  ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-600 dark:text-indigo-400 animate-pulse"
-                                  : "bg-zinc-500/10 border-zinc-500/20 text-zinc-500 dark:text-zinc-400"
-                            )}>
-                              {item.status}
-                            </span>
-                          </div>
-
-                          {/* IF NOT READY: PIPELINE STEPS AND GENERATE BUTTONS */}
-                          {item.status !== 'Pronto' && (
-                            <div className="bg-zinc-50/50 dark:bg-zinc-950/50 rounded-2xl p-4 border border-zinc-100 dark:border-zinc-800/50 space-y-4">
-                               {/* Pipeline Trackers */}
-                               <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", item.hasScript ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><PenTool className="w-3 h-3"/></div>
-                                     <div className={clsx("w-6 h-px", item.hasScript ? "bg-emerald-500" : "bg-zinc-200 dark:bg-zinc-800")} />
-                                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", (item.images?.length ?? 0) > 0 ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><ImageIcon className="w-3 h-3"/></div>
-                                     <div className={clsx("w-6 h-px", (item.images?.length ?? 0) > 0 ? "bg-emerald-500" : "bg-zinc-200 dark:bg-zinc-800")} />
-                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", (item.audios?.length ?? 0) > 0 ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><Music className="w-3 h-3"/></div>
-                                     <div className={clsx("w-6 h-px", (item.audios?.length ?? 0) > 0 ? "bg-emerald-500" : "bg-zinc-200 dark:bg-zinc-800")} />
-                                     <div className={clsx("w-6 h-6 rounded-full flex items-center justify-center text-[10px]", item.videoGeneratingStatus === 'success' ? "bg-emerald-500 text-white" : "bg-zinc-200 dark:bg-zinc-800 text-zinc-500")}><Video className="w-3 h-3"/></div>
-                                  </div>
-                                  <span className="text-[9px] font-black uppercase text-zinc-400">{progress}% Completo</span>
-                               </div>
-
-                               <div className="grid grid-cols-2 gap-2">
-                                  <button 
-                                    onClick={() => handleGenerateAll(item)}
-                                    disabled={item.status === 'Processando' || processingItems.has(item.uuid)}
-                                    className={clsx(
-                                      "col-span-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2",
-                                      (item.status === 'Processando' || processingItems.has(item.uuid)) ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed" : 
-                                      item.status === 'Erro' ? "bg-red-500/10 border border-red-500/30 text-red-500 hover:bg-red-500/20" :
-                                      "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white hover:scale-[1.02]"
-                                    )}
-                                  >
-                                    {(item.status === 'Processando' || processingItems.has(item.uuid)) ? <Loader2 className="w-4 h-4 animate-spin" /> : 
-                                     item.status === 'Erro' ? <AlertCircle className="w-4 h-4" /> :
-                                     <Sparkles className="w-4 h-4" />}
-                                    {(item.status === 'Processando' || processingItems.has(item.uuid)) ? 'Processando Automação...' : 
-                                     item.status === 'Erro' ? 'Tentar Novamente (Reprocessar)' :
-                                     'Gerar Vídeo Completo (Auto)'}
-                                  </button>
-                                  
-                                  {item.hasScript ? (
-                                    <a 
-                                       href={`/conteudo/editor/${item.uuid}`}
-                                       target="_blank"
-                                       rel="noopener noreferrer"
-                                       className="col-span-2 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-indigo-500/20 hover:border-indigo-500/50 text-indigo-500 dark:text-indigo-400 flex items-center justify-center gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
-                                    >
-                                       <ExternalLink className="w-3 h-3" /> Abrir no Estúdio
-                                    </a>
-                                  ) : (
-                                    <button 
-                                      onClick={() => handleGenerateScript(item)}
-                                      disabled={item.scriptGeneratingStatus === 'generating'}
-                                      className="col-span-2 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-zinc-500/20 hover:border-zinc-500/50 text-zinc-600 dark:text-zinc-400 flex items-center justify-center gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
-                                    >
-                                      {item.scriptGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <PenTool className="w-3 h-3" />} Gerar Roteiro
-                                    </button>
-                                  )}
-                                  
-                                  <details className="col-span-2 group">
-                                     <summary className="text-[9px] font-bold uppercase text-zinc-400 hover:text-indigo-400 cursor-pointer flex items-center justify-center gap-1 mt-2">
-                                       <MoreHorizontal className="w-3 h-3" /> Controles Avançados
-                                     </summary>
-                                     <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
-                                        <button onClick={() => handleGenerateScript(item)} disabled={item.scriptGeneratingStatus === 'generating' || item.hasScript} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
-                                          {item.scriptGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <PenTool className="w-3 h-3" />} Roteiro
-                                        </button>
-                                        <button onClick={() => handleGenerateImages(item)} disabled={!item.hasScript || item.imagesGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
-                                          {item.imagesGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <ImageIcon className="w-3 h-3" />} Imagens
-                                        </button>
-                                        <button onClick={() => handleGenerateAudios(item)} disabled={!item.hasScript || item.audiosGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
-                                          {item.audiosGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Music className="w-3 h-3" />} Áudios
-                                        </button>
-                                        <button onClick={() => handleGenerateVideo(item)} disabled={!item.hasScript || item.videoGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
-                                          {item.videoGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Video className="w-3 h-3" />} Vídeo
-                                        </button>
-                                     </div>
-                                  </details>
-                               </div>
-
-                               {item.hasScript && (
-                                 <a 
-                                   href={`/conteudo/editor/${item.uuid}`} 
-                                   target="_blank"
-                                   rel="noopener noreferrer"
-                                   className="w-full mt-2 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all border flex items-center justify-center gap-1.5 bg-zinc-100 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 shadow-sm"
-                                 >
-                                   <ExternalLink className="w-3 h-3" /> Abrir no Estúdio Criativo
-                                 </a>
-                               )}
-                            </div>
-                          )}
-
-                          {/* IF READY: COMPACT TABS */}
-                          {item.status === 'Pronto' && item.videoUrl && (
-                            <div className="bg-zinc-50 dark:bg-zinc-950/80 rounded-2xl border border-zinc-100 dark:border-zinc-800/80 overflow-hidden shadow-inner">
-                               <div className="flex bg-zinc-100 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
-                                  <button onClick={() => setCardTab('video')} className={clsx("flex-1 py-2 text-[9px] font-black uppercase flex items-center justify-center gap-1.5 transition-colors", activeTab === 'video' ? "bg-white dark:bg-zinc-950 text-emerald-600 dark:text-emerald-400 border-t-2 border-t-emerald-500" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300")}><Smartphone className="w-3 h-3"/> Mídia</button>
-                                  <button onClick={() => setCardTab('caption')} className={clsx("flex-1 py-2 text-[9px] font-black uppercase flex items-center justify-center gap-1.5 transition-colors", activeTab === 'caption' ? "bg-white dark:bg-zinc-950 text-indigo-600 dark:text-indigo-400 border-t-2 border-t-indigo-500" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300")}><Type className="w-3 h-3"/> Legenda</button>
-                                  <button onClick={() => setCardTab('publish')} className={clsx("flex-1 py-2 text-[9px] font-black uppercase flex items-center justify-center gap-1.5 transition-colors", activeTab === 'publish' ? "bg-white dark:bg-zinc-950 text-blue-600 dark:text-blue-400 border-t-2 border-t-blue-500" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300")}><Globe className="w-3 h-3"/> Postar</button>
-                                  <button onClick={() => setCardTab('schedule')} className={clsx("flex-1 py-2 text-[9px] font-black uppercase flex items-center justify-center gap-1.5 transition-colors", activeTab === 'schedule' ? "bg-white dark:bg-zinc-950 text-purple-600 dark:text-purple-400 border-t-2 border-t-purple-500" : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300")}><CalendarDays className="w-3 h-3"/> Agendar</button>
-                               </div>
-
-                               <div className="p-4">
-                                  {activeTab === 'video' && (
-                                     <div className="space-y-3 animate-in fade-in duration-300">
-                                       <div className="rounded-xl overflow-hidden aspect-[9/16] max-h-60 mx-auto bg-black relative shadow-lg ring-1 ring-zinc-800">
-                                         <video src={item.videoUrl} controls playsInline className="w-full h-full object-cover" />
-                                       </div>
-                                       <button onClick={() => downloadVideo(item.videoUrl!, `video-${item.slug || 'slug'}-${item.uuid.substring(0,8)}.mp4`)} className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5">
-                                         <Download className="w-3.5 h-3.5" /> Baixar MP4 HD
-                                       </button>
-                                     </div>
-                                  )}
-
-                                  {activeTab === 'caption' && (
-                                     <div className="space-y-3 animate-in fade-in duration-300">
-                                       <div className="max-h-48 overflow-y-auto text-[10px] text-zinc-600 dark:text-zinc-300 font-medium whitespace-pre-wrap pr-2 custom-scrollbar">
-                                         {item.captions ? (
-                                           <>
-                                             <p className="font-extrabold text-zinc-800 dark:text-zinc-100 mb-2">{item.tituloOtimizado}</p>
-                                             <p>{item.captions}</p>
-                                             <p className="mt-3 text-indigo-500 dark:text-indigo-400 font-mono text-[9px]">{item.hashtags}</p>
-                                           </>
-                                         ) : <span className="italic text-zinc-400">Nenhuma legenda gerada.</span>}
-                                       </div>
-                                       <button onClick={() => handleCopyText(`${item.captions || ''}\n\n${item.hashtags || ''}`, 'Conteúdo')} className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm flex items-center justify-center gap-1.5">
-                                         <Copy className="w-3.5 h-3.5" /> Copiar Tudo
-                                       </button>
-                                     </div>
-                                  )}
-
-                                  {activeTab === 'publish' && (
-                                     <div className="space-y-3 animate-in fade-in duration-300">
-                                       <div className="grid grid-cols-1 gap-2">
-                                          <button onClick={() => publishToPlatform(item.uuid, 'instagram')} disabled={publishingStatus[item.uuid]?.instagram === 'publishing' || publishingStatus[item.uuid]?.instagram === 'published'} className="w-full py-2 rounded-xl text-[9px] font-bold uppercase transition-all border flex items-center justify-between px-4 bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 disabled:opacity-70">
-                                            <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-pink-500"/> Instagram Reels</span>
-                                            <span>{publishingStatus[item.uuid]?.instagram === 'published' ? '✓ ENVIADO' : publishingStatus[item.uuid]?.instagram === 'publishing' ? 'ENVIANDO...' : 'POSTAR'}</span>
-                                          </button>
-                                          <button onClick={() => publishToPlatform(item.uuid, 'youtube')} disabled={publishingStatus[item.uuid]?.youtube === 'publishing' || publishingStatus[item.uuid]?.youtube === 'published'} className="w-full py-2 rounded-xl text-[9px] font-bold uppercase transition-all border flex items-center justify-between px-4 bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 disabled:opacity-70">
-                                            <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-red-500"/> YouTube Shorts</span>
-                                            <span>{publishingStatus[item.uuid]?.youtube === 'published' ? '✓ ENVIADO' : publishingStatus[item.uuid]?.youtube === 'publishing' ? 'ENVIANDO...' : 'POSTAR'}</span>
-                                          </button>
-                                          <button onClick={() => publishToPlatform(item.uuid, 'facebook')} disabled={publishingStatus[item.uuid]?.facebook === 'publishing' || publishingStatus[item.uuid]?.facebook === 'published'} className="w-full py-2 rounded-xl text-[9px] font-bold uppercase transition-all border flex items-center justify-between px-4 bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 disabled:opacity-70">
-                                            <span className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500"/> Facebook</span>
-                                            <span>{publishingStatus[item.uuid]?.facebook === 'published' ? '✓ ENVIADO' : publishingStatus[item.uuid]?.facebook === 'publishing' ? 'ENVIANDO...' : 'POSTAR'}</span>
-                                          </button>
-                                       </div>
-                                       <button onClick={() => publishToAllPlatforms(item.uuid)} className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5">
-                                         <Share2 className="w-3.5 h-3.5" /> Disparar em Todos
-                                       </button>
-                                     </div>
-                                  )}
-
-                                  {activeTab === 'schedule' && (
-                                     <div className="space-y-4 animate-in fade-in duration-300">
-                                       <div className="flex flex-col gap-2">
-                                         <label className="text-[9px] font-black uppercase text-zinc-500">Data e Hora (Buffer/Ayrshare)</label>
-                                         <input type="datetime-local" id={`schedule-${item.uuid}`} defaultValue={item.data_agendamento ? new Date(item.data_agendamento).toISOString().substring(0, 16) : ""} className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs outline-none text-zinc-900 dark:text-zinc-100 shadow-inner" />
-                                       </div>
-                                       <button onClick={() => {
-                                         const val = (document.getElementById(`schedule-${item.uuid}`) as HTMLInputElement)?.value;
-                                         if (!val) { alert('Escolha uma data.'); return; }
-                                         handleSchedulePost(item.uuid, val);
-                                       }} className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-1.5">
-                                         <CalendarDays className="w-3.5 h-3.5" /> {item.status_agendamento === 'Agendado' ? 'Atualizar Agendamento' : 'Programar Publicação'}
-                                       </button>
-                                       {item.status_agendamento === 'Agendado' && (
-                                         <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 p-2 rounded-xl flex items-center gap-2">
-                                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                                            <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 uppercase">Agendado para {new Date(item.data_agendamento!).toLocaleString()}</span>
-                                         </div>
-                                       )}
-                                     </div>
-                                  )}
-                               </div>
-                            </div>
-                          )}
-
-                        </div>
-                      </div>
+                        <ProductionCard
+                          key={item.uuid}
+                          item={item}
+                          activeTab={activeTab}
+                          setCardTab={setCardTab}
+                          progress={progress}
+                          publishingStatus={publishingStatus}
+                          onDiscard={handleDiscardItem}
+                          onGenerateAll={handleGenerateAll}
+                          onGenerateScript={handleGenerateScript}
+                          onGenerateImages={handleGenerateImages}
+                          onGenerateAudios={handleGenerateAudios}
+                          onGenerateVideo={handleGenerateVideo}
+                          onUpdateState={updateItemState}
+                          onDownload={downloadVideo}
+                          onCopyText={handleCopyText}
+                          onPublishPlatform={publishToPlatform}
+                          onPublishAll={publishToAllPlatforms}
+                          onSchedule={handleSchedulePost}
+                          activeImageModel={batchImageModel || (activePreset as any)?.config?.image_model || DEFAULT_IMAGE_MODEL}
+                        />
                       );
                     })}
                     
@@ -1541,7 +1726,22 @@ export default function ProductionStudioPage() {
                    <button onClick={() => setShowConfig(false)} className="text-[10px] font-bold text-zinc-400 hover:text-zinc-900">Fechar</button>
                 </div>
 
-                <PresetSelector />
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block">Preset</label>
+                    {activePresetId && (
+                      <button 
+                        onClick={() => setIsEditorModalOpen(true)}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold uppercase hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                      >
+                        <Edit3 className="w-3 h-3" /> Editar Arquiteto
+                      </button>
+                    )}
+                  </div>
+                  <PresetSelector />
+                </div>
+                
+                <GlobalMediaConfig />
 
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -1668,7 +1868,38 @@ export default function ProductionStudioPage() {
                    )}
 
                    <AccountSelector onSelect={handleAccountSelect} />
-                   <PresetSelector />
+                   
+                   <div className="space-y-2">
+                     <div className="flex items-center justify-between">
+                       <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block">Preset</label>
+                       {activePresetId && (
+                         <button 
+                           onClick={() => setIsEditorModalOpen(true)}
+                           className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold uppercase hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                         >
+                           <Edit3 className="w-3 h-3" /> Editar Arquiteto
+                         </button>
+                       )}
+                     </div>
+                     <PresetSelector />
+                     
+                     {/* Resumo visual do Preset (Mini-Cards) na Esteira */}
+                     {activePreset && activePreset.sessions && activePreset.sessions.length > 0 && (
+                       <div className="flex flex-wrap gap-1.5 mt-2">
+                         {activePreset.sessions.slice(0, 3).map(s => (
+                           <span key={s.id} className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400 text-[9px] font-black uppercase rounded">
+                             {s.title}
+                           </span>
+                         ))}
+                         {activePreset.sessions.length > 3 && (
+                           <span className="px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700/50 text-zinc-500 dark:text-zinc-400 text-[9px] font-black uppercase rounded">
+                             +{activePreset.sessions.length - 3}
+                           </span>
+                         )}
+                       </div>
+                     )}
+                   </div>
+
                    <PromptEditor />
                 </section>
 
@@ -1676,10 +1907,26 @@ export default function ProductionStudioPage() {
                 {productionItems.length > 0 && (
                   <section className="space-y-4 animate-in slide-in-from-left-4">
                     <div className="flex items-center justify-between">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
-                        Progresso da Campanha
-                      </label>
-                      <span className="text-[10px] font-bold text-zinc-400">{productionItems.length} itens</span>
+                      <div className="flex items-center gap-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-indigo-600 dark:text-indigo-400">
+                          Progresso da Campanha
+                        </label>
+                        <span className="text-[10px] font-bold text-zinc-400">{productionItems.length} itens</span>
+                      </div>
+                      <button 
+                        onClick={async () => {
+                          const pendingUuids = productionItems
+                            .filter(i => i.scriptGeneratingStatus === 'success' && i.status !== 'Pronto' && i.status !== 'Processando')
+                            .map(i => i.uuid);
+                          if (pendingUuids.length > 0) {
+                            await supabase.from('posts').update({ status: 'Produzir' }).in('id_post', pendingUuids);
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center gap-1.5 shadow-sm"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Produzir Vídeos Pendentes
+                      </button>
                     </div>
                     <div className="space-y-2 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
                       {productionItems.map((item) => (
@@ -1769,6 +2016,7 @@ export default function ProductionStudioPage() {
                 onClick={() => handleLoadStagingArea(false)}
                 disabled={
                   isLoading || 
+                  isPresetLoading ||
                   !activePreset || 
                   !selectedAccount || 
                   (dataSource === 'products' && products.length === 0) ||
@@ -1893,6 +2141,17 @@ export default function ProductionStudioPage() {
                   sessionId={currentSandboxUuid || undefined}
                   onInputChange={setChatInput}
                   onToolSuccess={handleSandboxToolSuccess}
+                  architectComponent={
+                    <ArchitectChat 
+                      activePresetId={activePreset?.id} 
+                      onRefreshPreset={() => {
+                         if (activePreset?.id) {
+                           console.log("Architect Chat triggered a preset refresh for:", activePreset.id);
+                           refreshPreset(activePreset.id);
+                         }
+                      }}
+                    />
+                  }
                 />
                </div>
             </div>
@@ -1900,6 +2159,10 @@ export default function ProductionStudioPage() {
         </div>
 
       </div>
+      
+      {isEditorModalOpen && (
+        <PresetEditorModal presetId={activePresetId} onClose={() => setIsEditorModalOpen(false)} />
+      )}
     </main>
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+
 import {
   LayoutDashboard,
   Settings,
@@ -18,11 +18,14 @@ import {
   Calendar,
   Lightbulb,
   TrendingUp,
-  RefreshCw
-} from 'lucide-react';import clsx from 'clsx';
-import { useState } from 'react';
+  RefreshCw,
+  MessageSquare,
+  MessageCircle
+} from 'lucide-react';
+import clsx from 'clsx';
+import { useState, useEffect } from 'react';
 import { signOut } from 'next-auth/react';
-import ThemeToggle from '@/components/theme-toggle';
+
 
 const mainNavigation = [
   { name: 'Visão Geral', href: '/', icon: LayoutDashboard },
@@ -39,6 +42,12 @@ const contentNavigation = [
   { name: 'Esteira de Produção', href: '/production', icon: PlayCircle },
 ];
 
+const engagementNavigation = [
+  { name: 'Inbox (DMs)', href: '/inbox', icon: MessageSquare },
+  { name: 'Comentários', href: '/comments', icon: MessageCircle },
+  { name: 'Performance', href: '/reports/engagement', icon: TrendingUp },
+];
+
 const assetNavigation = [
   { name: 'Banco de Imagens', href: '/banco-imagens', icon: Images },
   { name: 'Banco de Áudios', href: '/banco-audios', icon: Music },
@@ -47,8 +56,12 @@ const assetNavigation = [
 ];
 
 export default function Sidebar() {
-  const pathname = usePathname();
+  const [pathname, setPathname] = useState('');
   const [isCollapsed, setIsCollapsed] = useState(false);
+  
+  useEffect(() => {
+    setPathname(window.location.pathname);
+  }, []);
   
   const isAutoHideMode = pathname.startsWith('/conteudo/editor') || pathname.startsWith('/conteudo/chat');
   const effectiveCollapsed = isAutoHideMode ? false : isCollapsed;
@@ -164,6 +177,43 @@ export default function Sidebar() {
           <div>
             {!isCollapsed && (
               <div className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.2em] mb-3 px-2 truncate">
+                Engajamento
+              </div>
+            )}
+            <ul role="list" className="space-y-1">
+              {engagementNavigation.map((item) => {
+                const isActive = pathname === item.href;
+                return (
+                  <li key={item.name}>
+                    <Link
+                      href={item.href}
+                      className={clsx(
+                        isActive
+                          ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400'
+                          : 'text-zinc-700 hover:text-indigo-600 hover:bg-zinc-50 dark:text-zinc-400 dark:hover:text-zinc-300 dark:hover:bg-zinc-800/50',
+                        'group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-medium transition-colors',
+                        isCollapsed && "justify-center"
+                      )}
+                    >
+                      <item.icon
+                        className={clsx(
+                          isActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400 group-hover:text-indigo-600 dark:group-hover:text-zinc-300',
+                          'h-5 w-5 shrink-0'
+                        )}
+                        aria-hidden="true"
+                      />
+                      {!isCollapsed && <span>{item.name}</span>}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {/* Gestão de Ativos */}
+          <div>
+            {!isCollapsed && (
+              <div className="text-[10px] font-black text-zinc-400 dark:text-zinc-500 uppercase tracking-[0.2em] mb-3 px-2 truncate">
                 Gestão de Ativos
               </div>
             )}
@@ -202,7 +252,7 @@ export default function Sidebar() {
       
       {/* Bottom Profile/Settings */}
       <div className="flex-none pb-4">
-        <ThemeToggle isCollapsed={isCollapsed} />
+
         <div className="px-4 space-y-2 mt-4">
         <Link href="/presets" className={clsx(
           "flex items-center gap-x-4 px-2 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 rounded-md transition-colors",

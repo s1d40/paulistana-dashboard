@@ -1,4 +1,5 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
 import { Account, fetchAccounts } from '@/services/supabase-service';
@@ -49,7 +50,7 @@ export default function PublicarPage() {
               <p className="text-zinc-500 text-sm font-medium">Gerencie suas contas e publique em massa.</p>
             </div>
           </div>
-          <button className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-600/20 transition-all flex items-center gap-2">
+          <button onClick={() => router.push('/configuracoes/contas')} className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-lg shadow-indigo-600/20 transition-all flex items-center gap-2">
             <Settings className="w-4 h-4" /> Configurar Nova Conta
           </button>
         </header>
@@ -61,43 +62,58 @@ export default function PublicarPage() {
             const type = account.conta_id_instagram ? 'Instagram' : 
                          account.conta_id_facebook ? 'Facebook' :
                          account.yt_credencial ? 'Youtube' : 'Generic';
+                         
+            const isConnected = !!account.ig_access_token;
 
             return (
-              <div key={account.id_conta} className="bg-zinc-900 border border-zinc-800 rounded-[2rem] p-8 space-y-6 hover:border-indigo-500/30 transition-all group relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-8">
-                   <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
-                </div>
-                
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-zinc-800 rounded-[1.5rem] flex items-center justify-center border border-zinc-700 shadow-xl group-hover:scale-110 transition-transform duration-500">
-                     {type === 'Instagram' ? <Camera className="w-8 h-8 text-pink-500" /> : 
-                      type === 'Facebook' ? <Globe className="w-8 h-8 text-blue-500" /> :
-                      type === 'Youtube' ? <Video className="w-8 h-8 text-red-500" /> :
-                      <Globe className="w-8 h-8 text-indigo-500" />}
+              <div key={account.id_conta} className="bg-zinc-900 border border-zinc-800 rounded-[2rem] p-8 space-y-6 hover:border-indigo-500/30 transition-all group relative overflow-hidden flex flex-col justify-between">
+                <div>
+                  <div className="absolute top-0 right-0 p-8">
+                     {isConnected ? (
+                       <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_12px_rgba(16,185,129,0.8)]" />
+                     ) : (
+                       <div className="w-2 h-2 bg-red-500 rounded-full shadow-[0_0_12px_rgba(239,68,68,0.8)]" />
+                     )}
                   </div>
-                  <div>
-                    <h3 className="font-black text-lg text-white tracking-tight">{account.nome_conta}</h3>
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-500">{account.nicho || 'Geral'}</span>
-                      <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-zinc-600">{type} Account</span>
+                  
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-zinc-800 rounded-[1.5rem] flex items-center justify-center border border-zinc-700 shadow-xl group-hover:scale-110 transition-transform duration-500">
+                       {type === 'Instagram' ? <Camera className="w-8 h-8 text-pink-500" /> : 
+                        type === 'Facebook' ? <Globe className="w-8 h-8 text-blue-500" /> :
+                        type === 'Youtube' ? <Video className="w-8 h-8 text-red-500" /> :
+                        <Globe className="w-8 h-8 text-indigo-500" />}
+                    </div>
+                    <div>
+                      <h3 className="font-black text-lg text-white tracking-tight">{account.nome_conta}</h3>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-500">{account.nicho || 'Geral'}</span>
+                        <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-zinc-600">{type} Account</span>
+                      </div>
                     </div>
                   </div>
+  
+                  <div className="space-y-4 mt-6">
+                     <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-zinc-500 bg-black/20 p-3 rounded-xl border border-zinc-800/50">
+                        <span>Status Meta</span>
+                        {isConnected ? (
+                          <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Conectado</span>
+                        ) : (
+                          <span className="text-red-500 flex items-center gap-1">Desconectado</span>
+                        )}
+                     </div>
+                  </div>
                 </div>
 
-                <div className="space-y-4">
-                   <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-zinc-500 bg-black/20 p-3 rounded-xl border border-zinc-800/50">
-                      <span>Status</span>
-                      <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Conectado</span>
+                <div className="pt-4 flex flex-col gap-2">
+                   {!isConnected && (
+                     <a href={`/api/auth/facebook?conta_id=${account.id_conta}`} className="w-full py-3 bg-[#1877F2] hover:bg-[#1864D9] text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all shadow-sm flex items-center justify-center">
+                        Conectar Facebook
+                     </a>
+                   )}
+                   <div className="flex gap-2">
+                     <button className="flex-1 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-zinc-700">Ver Perfil</button>
+                     <button onClick={() => router.push('/configuracoes/contas')} className="flex-1 py-3 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-indigo-500/20">Configurações</button>
                    </div>
-                   <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-zinc-500 bg-black/20 p-3 rounded-xl border border-zinc-800/50">
-                      <span>Métricas</span>
-                      <span className="text-zinc-300">Google Analytics 4</span>
-                   </div>
-                </div>
-
-                <div className="pt-4 flex gap-2">
-                   <button className="flex-1 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-zinc-700">Ver Perfil</button>
-                   <button className="flex-1 py-3 bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all border border-indigo-500/20">Configurações</button>
                 </div>
               </div>
             );

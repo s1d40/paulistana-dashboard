@@ -1,122 +1,154 @@
 "use client";
+export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect } from 'react';
 import { 
   PlayCircle, 
-  Camera, 
   Eye, 
-  ThumbsUp, 
-  MessageCircle, 
   Users, 
   PlaySquare,
   AlertCircle,
   RefreshCw,
-  ExternalLink
+  Heart,
+  MessageCircle,
+  ThumbsUp
 } from 'lucide-react';
+import AccountSelector from '@/components/account-selector';
+import { Account, Client } from '@/services/supabase-service';
+import clsx from 'clsx';
+import { InstagramIcon, YoutubeIcon } from '@/components/brand-icons';
 
 export default function EngagementPage() {
-  const [ytLoading, setYtLoading] = useState(true);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  
+  const [ytLoading, setYtLoading] = useState(false);
   const [ytData, setYtData] = useState<any>(null);
   const [ytError, setYtError] = useState('');
 
-  const [igLoading, setIgLoading] = useState(true);
+  const [igLoading, setIgLoading] = useState(false);
   const [igData, setIgData] = useState<any>(null);
   const [igError, setIgError] = useState('');
 
+  const handleAccountSelect = (account: Account) => {
+    setSelectedAccountId(account.id_conta);
+  };
+
   useEffect(() => {
+    if (!selectedAccountId) return;
+
+    setIgLoading(true);
+    setYtLoading(true);
+
     // Fetch YouTube
-    fetch('/api/social/youtube')
+    fetch(`/api/social/youtube?accountId=${selectedAccountId}`)
       .then(res => res.json())
       .then(data => {
         if (data.error) setYtError(data.error);
-        else setYtData(data);
+        else { setYtData(data); setYtError(''); }
       })
       .catch(err => setYtError('Erro ao conectar com API do YouTube'))
       .finally(() => setYtLoading(false));
 
     // Fetch Instagram
-    fetch('/api/social/instagram')
+    fetch(`/api/social/instagram?accountId=${selectedAccountId}`)
       .then(res => res.json())
       .then(data => {
         if (data.error) setIgError(data.error);
-        else setIgData(data);
+        else { setIgData(data); setIgError(''); }
       })
       .catch(err => setIgError('Erro ao conectar com API do Instagram'))
       .finally(() => setIgLoading(false));
-  }, []);
+  }, [selectedAccountId]);
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
       
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-black tracking-tight text-white flex items-center gap-3">
-          <PlaySquare className="w-8 h-8 text-rose-500" />
-          Performance de Conteúdo
-        </h1>
-        <p className="text-zinc-400 mt-2 font-medium">
-          Monitore visualizações, engajamento e métricas dos vídeos gerados pela fábrica de conteúdo nas suas redes sociais.
-        </p>
+      {/* Header & Account Selector */}
+      <div className="relative z-50 flex flex-col md:flex-row md:items-end justify-between gap-6 bg-zinc-900/40 p-8 rounded-3xl border border-white/5 backdrop-blur-xl">
+        <div>
+          <h1 className="text-4xl font-black tracking-tight text-white flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+              <PlaySquare className="w-6 h-6 text-white" />
+            </div>
+            Performance
+          </h1>
+          <p className="text-zinc-400 mt-3 font-medium text-lg max-w-xl">
+            Painel consolidado de Business Intelligence. Monitore visualizações e engajamento das contas selecionadas.
+          </p>
+        </div>
+        <div className="w-full md:w-80 shrink-0 relative z-50">
+          <AccountSelector onSelect={handleAccountSelect} placement="bottom" />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
         
-        {/* YOUTUBE SECTION */}
+        {/* INSTAGRAM SECTION */}
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <PlayCircle className="w-6 h-6 text-red-500" />
-              YouTube
+            <h2 className="text-2xl font-black text-white flex items-center gap-3">
+              <div className="p-2 bg-gradient-to-tr from-yellow-500 via-pink-500 to-purple-600 rounded-xl">
+                <InstagramIcon className="w-5 h-5 text-white" />
+              </div>
+              Instagram Insights
             </h2>
           </div>
 
-          {ytLoading ? (
-            <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-12 flex flex-col items-center justify-center text-zinc-500">
-              <RefreshCw className="w-8 h-8 animate-spin mb-4 text-red-500" />
-              <p>Conectando ao YouTube Data API...</p>
+          {igLoading ? (
+            <div className="h-[400px] bg-zinc-900/50 border border-white/5 rounded-3xl p-12 flex flex-col items-center justify-center text-zinc-500 backdrop-blur-sm">
+              <RefreshCw className="w-10 h-10 animate-spin mb-6 text-pink-500" />
+              <p className="font-medium text-lg">Sincronizando com a Meta...</p>
             </div>
-          ) : ytError ? (
-            <div className="bg-red-950/20 border border-red-900/50 rounded-3xl p-8 flex flex-col items-center justify-center text-center text-red-400">
-              <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
-              <h3 className="text-lg font-bold text-red-500 mb-2">Integração Pendente</h3>
-              <p className="text-sm opacity-80 max-w-sm">{ytError}</p>
-              <p className="text-xs mt-4 text-zinc-500">Aguardando inserção de YOUTUBE_API_KEY e YOUTUBE_CHANNEL_ID.</p>
+          ) : !igData || igError ? (
+            <div className="h-[400px] bg-zinc-900/30 border border-white/5 rounded-3xl p-8 flex flex-col items-center justify-center text-center backdrop-blur-sm">
+              <div className="w-16 h-16 rounded-full bg-pink-500/10 flex items-center justify-center mb-6">
+                <AlertCircle className="w-8 h-8 text-pink-500" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Conta não vinculada</h3>
+              <p className="text-zinc-400 max-w-sm">{igError || 'Nenhuma conta do Instagram vinculada a este perfil.'}</p>
             </div>
-          ) : ytData && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Users className="w-4 h-4"/> Inscritos</div>
-                  <div className="text-2xl font-black text-white">{ytData.channel.subscribers.toLocaleString('pt-BR')}</div>
+          ) : igData && (
+            <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-700">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-pink-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-pink-400"/> Seguidores
+                  </div>
+                  <div className="text-4xl font-black text-white tracking-tight">{igData.profile.followers.toLocaleString('pt-BR')}</div>
                 </div>
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><Eye className="w-4 h-4"/> Visitas Totais</div>
-                  <div className="text-2xl font-black text-white">{ytData.channel.totalViews.toLocaleString('pt-BR')}</div>
-                </div>
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><PlaySquare className="w-4 h-4"/> Vídeos</div>
-                  <div className="text-2xl font-black text-white">{ytData.channel.videoCount.toLocaleString('pt-BR')}</div>
+                <div className="bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <PlaySquare className="w-4 h-4 text-purple-400"/> Publicações
+                  </div>
+                  <div className="text-4xl font-black text-white tracking-tight">{igData.profile.mediaCount.toLocaleString('pt-BR')}</div>
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden">
-                <div className="p-5 border-b border-zinc-800 bg-zinc-950/50">
-                  <h3 className="font-bold text-white text-sm">Últimos Lançamentos</h3>
+              <div className="bg-white/5 border border-white/5 rounded-3xl overflow-hidden backdrop-blur-sm">
+                <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02]">
+                  <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest">Últimos Posts e Reels</h3>
                 </div>
-                <div className="p-4 space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar">
-                  {ytData.recentVideos.map((video: any) => (
-                    <div key={video.id} className="flex gap-4 p-3 bg-zinc-800/20 rounded-xl border border-zinc-700/30 hover:bg-zinc-800/40 transition-colors">
-                      <img src={video.thumbnail} alt={video.title} className="w-24 h-16 object-cover rounded-lg" />
+                <div className="divide-y divide-white/5 max-h-[500px] overflow-y-auto custom-scrollbar">
+                  {igData.recentPosts.map((post: any) => (
+                    <a key={post.id} href={post.permalink} target="_blank" rel="noreferrer" className="flex items-center gap-5 p-5 hover:bg-white/5 transition-colors group">
+                      <div className="relative w-20 h-20 rounded-2xl overflow-hidden bg-zinc-800 shrink-0 shadow-lg group-hover:scale-105 transition-transform duration-500">
+                        <img src={post.thumbnail} alt="" className="w-full h-full object-cover" />
+                        {post.type === 'VIDEO' && (
+                          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                            <PlayCircle className="w-8 h-8 text-white drop-shadow-lg" />
+                          </div>
+                        )}
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-bold text-zinc-200 line-clamp-1" title={video.title}>{video.title}</h4>
-                        <p className="text-xs text-zinc-500 mb-2">{new Date(video.publishedAt).toLocaleDateString('pt-BR')}</p>
-                        <div className="flex gap-3 text-xs font-medium">
-                          <span className="flex items-center gap-1 text-emerald-400"><Eye className="w-3 h-3"/> {video.views.toLocaleString('pt-BR')}</span>
-                          <span className="flex items-center gap-1 text-zinc-400"><ThumbsUp className="w-3 h-3"/> {video.likes.toLocaleString('pt-BR')}</span>
-                          <span className="flex items-center gap-1 text-zinc-400"><MessageCircle className="w-3 h-3"/> {video.comments.toLocaleString('pt-BR')}</span>
+                        <p className="text-sm font-medium text-zinc-300 line-clamp-2 leading-relaxed mb-3 group-hover:text-white transition-colors">{post.caption}</p>
+                        <div className="flex items-center gap-4 text-xs font-bold">
+                          <span className="flex items-center gap-1.5 text-pink-400/80"><Heart className="w-3.5 h-3.5 fill-current" /> {post.likes}</span>
+                          <span className="flex items-center gap-1.5 text-blue-400/80"><MessageCircle className="w-3.5 h-3.5" /> {post.comments}</span>
                         </div>
                       </div>
-                    </div>
+                    </a>
                   ))}
                 </div>
               </div>
@@ -124,67 +156,69 @@ export default function EngagementPage() {
           )}
         </div>
 
-        {/* INSTAGRAM SECTION */}
+        {/* YOUTUBE SECTION */}
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Camera className="w-6 h-6 text-fuchsia-500" />
-              Instagram
+            <h2 className="text-2xl font-black text-white flex items-center gap-3">
+              <div className="p-2 bg-red-500/10 rounded-xl">
+                <YoutubeIcon className="w-5 h-5 text-red-500" />
+              </div>
+              YouTube Analytics
             </h2>
           </div>
 
-          {igLoading ? (
-            <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-12 flex flex-col items-center justify-center text-zinc-500">
-              <RefreshCw className="w-8 h-8 animate-spin mb-4 text-fuchsia-500" />
-              <p>Conectando à Meta Graph API...</p>
+          {ytLoading ? (
+            <div className="h-[400px] bg-zinc-900/50 border border-white/5 rounded-3xl p-12 flex flex-col items-center justify-center text-zinc-500 backdrop-blur-sm">
+              <RefreshCw className="w-10 h-10 animate-spin mb-6 text-red-500" />
+              <p className="font-medium text-lg">Conectando ao YouTube API...</p>
             </div>
-          ) : igError ? (
-            <div className="bg-fuchsia-950/20 border border-fuchsia-900/50 rounded-3xl p-8 flex flex-col items-center justify-center text-center text-fuchsia-400">
-              <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
-              <h3 className="text-lg font-bold text-fuchsia-500 mb-2">Integração Pendente</h3>
-              <p className="text-sm opacity-80 max-w-sm">{igError}</p>
-              <p className="text-xs mt-4 text-zinc-500">Aguardando inserção de INSTAGRAM_ACCESS_TOKEN e INSTAGRAM_ACCOUNT_ID.</p>
+          ) : !ytData || ytError ? (
+            <div className="h-[400px] bg-zinc-900/30 border border-white/5 rounded-3xl p-8 flex flex-col items-center justify-center text-center backdrop-blur-sm">
+              <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-6">
+                <PlayCircle className="w-8 h-8 text-red-500" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Canal não vinculado</h3>
+              <p className="text-zinc-400 max-w-sm">Nenhum canal do YouTube foi configurado para esta conta no momento.</p>
             </div>
-          ) : igData && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 flex items-center gap-4">
-                  {igData.profile.picture ? (
-                    <img src={igData.profile.picture} alt="Profile" className="w-12 h-12 rounded-full border-2 border-fuchsia-500" />
-                  ) : (
-                    <div className="w-12 h-12 rounded-full bg-zinc-800 border-2 border-fuchsia-500 flex items-center justify-center"><Camera className="w-5 h-5 text-fuchsia-500"/></div>
-                  )}
-                  <div>
-                    <div className="text-zinc-400 text-xs font-bold uppercase tracking-wider">Seguidores</div>
-                    <div className="text-2xl font-black text-white">{igData.profile.followers.toLocaleString('pt-BR')}</div>
-                  </div>
+          ) : ytData && (
+            <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-700">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 flex items-center gap-2"><Users className="w-3 h-3 text-red-400"/> Inscritos</div>
+                  <div className="text-3xl font-black text-white tracking-tight">{ytData.channel.subscribers.toLocaleString('pt-BR')}</div>
                 </div>
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2"><PlaySquare className="w-4 h-4"/> Posts / Reels</div>
-                  <div className="text-2xl font-black text-white">{igData.profile.mediaCount.toLocaleString('pt-BR')}</div>
+                <div className="bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 flex items-center gap-2"><Eye className="w-3 h-3 text-red-400"/> Views</div>
+                  <div className="text-3xl font-black text-white tracking-tight">{ytData.channel.totalViews.toLocaleString('pt-BR')}</div>
+                </div>
+                <div className="bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mb-3 flex items-center gap-2"><PlaySquare className="w-3 h-3 text-red-400"/> Vídeos</div>
+                  <div className="text-3xl font-black text-white tracking-tight">{ytData.channel.videoCount.toLocaleString('pt-BR')}</div>
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden">
-                <div className="p-5 border-b border-zinc-800 bg-zinc-950/50">
-                  <h3 className="font-bold text-white text-sm">Últimos Reels e Posts</h3>
+              <div className="bg-white/5 border border-white/5 rounded-3xl overflow-hidden backdrop-blur-sm">
+                <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02]">
+                  <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest">Últimos Vídeos</h3>
                 </div>
-                <div className="p-4 space-y-4 max-h-[500px] overflow-y-auto custom-scrollbar">
-                  {igData.recentPosts.map((post: any) => (
-                    <div key={post.id} className="flex gap-4 p-3 bg-zinc-800/20 rounded-xl border border-zinc-700/30 hover:bg-zinc-800/40 transition-colors">
-                      <div className="relative w-16 h-20 shrink-0">
-                        <img src={post.thumbnail} alt="Post" className="w-full h-full object-cover rounded-lg" />
-                        {post.type === 'VIDEO' && <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-lg"><PlaySquare className="w-5 h-5 text-white" /></div>}
+                <div className="divide-y divide-white/5 max-h-[500px] overflow-y-auto custom-scrollbar">
+                  {ytData.recentVideos.map((video: any) => (
+                    <a key={video.id} href={`https://youtube.com/watch?v=${video.id}`} target="_blank" rel="noreferrer" className="flex gap-5 p-5 hover:bg-white/5 transition-colors group">
+                      <div className="relative w-32 h-20 rounded-xl overflow-hidden bg-zinc-800 shrink-0 shadow-lg group-hover:scale-105 transition-transform duration-500">
+                        <img src={video.thumbnail} alt="" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/20 group-hover:bg-transparent transition-colors" />
                       </div>
                       <div className="flex-1 min-w-0 py-1">
-                        <p className="text-xs text-zinc-300 line-clamp-2 leading-relaxed mb-2" title={post.caption}>{post.caption}</p>
-                        <div className="flex gap-3 text-xs font-medium">
-                          <span className="flex items-center gap-1 text-fuchsia-400"><ThumbsUp className="w-3 h-3"/> {post.likes.toLocaleString('pt-BR')}</span>
-                          <span className="flex items-center gap-1 text-zinc-400"><MessageCircle className="w-3 h-3"/> {post.comments.toLocaleString('pt-BR')}</span>
-                          <a href={post.permalink} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-zinc-500 hover:text-white ml-auto"><ExternalLink className="w-3 h-3"/> Abrir</a>
+                        <p className="text-sm font-bold text-zinc-200 line-clamp-2 leading-snug mb-2 group-hover:text-white transition-colors">{video.title}</p>
+                        <div className="flex items-center gap-3 text-[11px] font-bold text-zinc-500">
+                          <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {video.views.toLocaleString('pt-BR')}</span>
+                          <span className="flex items-center gap-1"><ThumbsUp className="w-3 h-3" /> {video.likes.toLocaleString('pt-BR')}</span>
                         </div>
                       </div>
-                    </div>
+                    </a>
                   ))}
                 </div>
               </div>

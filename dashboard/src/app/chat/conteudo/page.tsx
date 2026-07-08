@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import ChatPanel from '@/components/chat-panel';
 import ChatContextPanel from '@/components/chat-context-panel';
 import { PenTool } from 'lucide-react';

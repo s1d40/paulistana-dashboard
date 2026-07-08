@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import OverviewDashboard from '@/components/overview-dashboard';
 
 export default function Home() {

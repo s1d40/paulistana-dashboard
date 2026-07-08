@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
 import { execSync } from 'child_process';
 import path from 'path';
 
@@ -86,7 +88,7 @@ Retorne o JSON estrito.
         body: JSON.stringify({
           user_prompt: userPrompt,
           system_message: systemMessage,
-          config: { model: "claude-sonnet-4-6", temperature: 0.2, prompt: "JSON format only" }
+          config: { model: "cloude sonnet 4.6", temperature: 0.2, prompt: "JSON format only" }
         }),
       });
 

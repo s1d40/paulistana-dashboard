@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where(.dark, .dark *, .sunset, .sunset *, .dawn, .dawn *));
+@custom-variant dark (&:where(.dark, .dark *, .sunset, .sunset *, .dawn, .dawn *, .offblack, .offblack *));
 
 :root {
   --background: #ffffff;
@@ -59,6 +59,36 @@
   --color-indigo-400: #8b5cf6;
   --color-indigo-500: #7c3aed;
   --color-indigo-600: #6d28d9;
+}
+
+.offwhite {
+  --background: #fbfbfa;
+  --foreground: #2d2d2a;
+  --color-zinc-950: #f0f0ed;
+  --color-zinc-900: #e6e6e1;
+  --color-zinc-800: #d4d4cd;
+  --color-zinc-700: #b5b5ad;
+  --color-zinc-600: #96968d;
+  --color-zinc-200: #595955;
+  --color-zinc-300: #73736e;
+  --color-indigo-400: #a39b8c;
+  --color-indigo-500: #8a8274;
+  --color-indigo-600: #6b6458;
+}
+
+.offblack {
+  --background: #080504;
+  --foreground: #fff5f0;
+  --color-zinc-950: #0a0605;
+  --color-zinc-900: #120b09;
+  --color-zinc-800: #1f110c;
+  --color-zinc-700: #2d1810;
+  --color-zinc-600: #3f2015;
+  --color-zinc-200: #d4a694;
+  --color-zinc-300: #c28771;
+  --color-indigo-400: #c26130;
+  --color-indigo-500: #b05324;
+  --color-indigo-600: #8f3e15;
 }
 
 body {

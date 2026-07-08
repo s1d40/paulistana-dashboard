@@ -1,4 +1,5 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
 import { useState, useMemo, Suspense, useEffect } from 'react';
 import { FileText, Clock, CheckCircle2, ExternalLink, RefreshCcw, Loader2, PlayCircle, Plus, Share2, Sparkles, Layout, Video, Image as ImageIcon, Trash2 } from 'lucide-react';

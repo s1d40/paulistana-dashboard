@@ -95,9 +95,9 @@ const cockpitPreview = [
     const agentConfig = {
       id_post: session_id,
       active_preset_id: active_preset_id,
-      architect_model: architect_model || 'models/gemini-3.1-pro-preview',
+      architect_model: architect_model || 'gemini 3.1 pro',
       scriptwriter_config: {
-        model: model || 'gpt-5.4',
+        model: model || 'gpt5.4',
         temperature: temperature ?? 0.7,
         global_prompt: prompt,
         use_real_products: !!use_real_products
@@ -112,7 +112,7 @@ const cockpitPreview = [
       session_id: session_id,
       id_post: session_id,
       // Enviar o modelo do arquiteto para o n8n mapear no nó da IA
-      model: architect_model || 'models/gemini-3.1-pro-preview', 
+      model: architect_model || 'gemini 3.1 pro', 
       system_message: fullSystemMessage, 
       agent_config: agentConfig,
       system_context: {

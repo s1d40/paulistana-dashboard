@@ -16,7 +16,7 @@ def get_audio_duration(audio_path):
         raise Exception(f"Erro ao ler duração do áudio: {result.stderr}")
     return float(result.stdout.strip())
 
-def gerar_legenda_capcut(json_path, output_ass_path):
+def gerar_legenda_capcut(json_path, output_ass_path, resolution="portrait"):
     with open(json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
@@ -39,10 +39,13 @@ def gerar_legenda_capcut(json_path, output_ass_path):
     for i in range(0, len(words), chunk_size):
         chunks.append(words[i:i+chunk_size])
 
+    res_x = 1080 if resolution == "portrait" else 1920
+    res_y = 1920 if resolution == "portrait" else 1080
+
     ass_content = f"""[Script Info]
 ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+PlayResX: {res_x}
+PlayResY: {res_y}
 WrapStyle: 1
 
 [V4+ Styles]
@@ -90,6 +93,8 @@ def run_animator():
     parser.add_argument("output_path")
     parser.add_argument("animation_type")
     parser.add_argument("json_path")
+    parser.add_argument("--format", choices=["portrait", "landscape"], default="portrait", help="Formato do vídeo (portrait=9:16, landscape=16:9)")
+    parser.add_argument("--no-subtitles", action="store_true", help="Desabilitar a geração de legendas")
     
     args = parser.parse_args()
     
@@ -97,19 +102,22 @@ def run_animator():
         if not os.path.exists(args.image_path) or not os.path.exists(args.audio_path) or not os.path.exists(args.json_path):
             raise Exception("Arquivo de imagem, áudio ou json não encontrado na pasta /tmp/")
 
-        ass_path = args.output_path.replace('.mp4', '.ass')
-        ass_gerado = gerar_legenda_capcut(args.json_path, ass_path)
+        ass_gerado = None
+        if not args.no_subtitles:
+            ass_path = args.output_path.replace('.mp4', '.ass')
+            ass_gerado = gerar_legenda_capcut(args.json_path, ass_path, resolution=args.format)
 
         duration = get_audio_duration(args.audio_path)
         fps = 30
         total_frames = int(duration * fps)
         
-        target_w, target_h = 1080, 1920
+        target_w = 1080 if args.format == "portrait" else 1920
+        target_h = 1920 if args.format == "portrait" else 1080
         # Correção do Jitter/Tremedeira do FFmpeg (zoompan fractional pixel rounding bug):
         # Aumentamos a resolução interna de trabalho (upscale) antes do zoompan.
         # Assim, o erro de arredondamento de 1 sub-pixel do FFmpeg é diluído quando a
         # imagem retorna para o tamanho original (downscale), deixando a câmera suave.
-        upscale_factor = 4
+        upscale_factor = 2
         uw, uh = target_w * upscale_factor, target_h * upscale_factor
         
         z_pan = 1.3
@@ -143,7 +151,7 @@ def run_animator():
             '-i', args.image_path,
             '-i', args.audio_path,
             '-filter_complex', filter_complex,
-            '-threads', '0',
+            '-threads', '4',
             '-c:v', 'libx264', '-preset', 'faster', '-crf', '23',
             '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', '128k',

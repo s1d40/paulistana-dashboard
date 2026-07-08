@@ -1,4 +1,5 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
 import { useState, Suspense } from 'react';
 import { usePresetStore, ContentType, SystemMessageSession, Preset } from '@/store/presetStore';

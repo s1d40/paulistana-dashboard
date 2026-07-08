@@ -9,9 +9,9 @@ import {
   Hash, Layout, Smartphone, PenTool, Sparkles,
   Monitor, PlayCircle, Camera, CheckCircle2,
   Globe, Share2, Send, ExternalLink, Download, Copy, Check,
-  CalendarDays, Bot
+  CalendarDays, Bot, Upload
 } from 'lucide-react';
-import { fetchPostDetails, duplicatePostAsDraft, PostDetailsPayload, Account } from '@/services/supabase-service';
+import { fetchPostDetails, duplicatePostAsDraft, PostDetailsPayload, Account, PostImage } from '@/services/supabase-service';
 import { supabase } from '@/lib/supabase';
 import clsx from 'clsx';
 import AccountSelector from '@/components/account-selector';
@@ -46,6 +46,55 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
 
   const [isSavePresetModalOpen, setIsSavePresetModalOpen] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
+  
+  const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
+
+  const handleUploadImage = async (e: React.ChangeEvent<HTMLInputElement>, imageTarget: PostImage) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingImageId(imageTarget.id_imagem || imageTarget.numero_cena || 'new');
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error('Falha no upload');
+      const { url } = await res.json();
+
+      // Atualizar o banco de dados
+      if (imageTarget.id_imagem) {
+        await supabase.from('imagens').update({ image_url: url }).eq('id_imagem', imageTarget.id_imagem);
+      } else {
+        await supabase.from('imagens').update({ image_url: url }).eq('id_post', imageTarget.id_post).eq('numero_cena', imageTarget.numero_cena);
+      }
+
+      // Atualizar o estado local
+      setDetails(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          imagens: prev.imagens.map(img => {
+            if (img.id_imagem === imageTarget.id_imagem || (img.numero_cena && img.numero_cena === imageTarget.numero_cena)) {
+              return { ...img, image_url: url };
+            }
+            return img;
+          })
+        };
+      });
+
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao fazer upload da imagem.');
+    } finally {
+      setUploadingImageId(null);
+    }
+  };
   const [newPresetDesc, setNewPresetDesc] = useState('');
   const [isSavingPreset, setIsSavingPreset] = useState(false);
 
@@ -102,11 +151,13 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
     setIsGeneratingScript(true);
     try {
       let config = { model: 'gpt-4o', temperature: 0.7, prompt: `Criar roteiro para: ${details.post.tema_post}` };
+      let systemMessage = 'Você é um roteirista de alta performance.';
       
-      if (details.has_preset) {
+      if (details?.has_preset) {
         const { data: preset } = await supabase.from('content_presets').select('*').eq('id', postId).maybeSingle();
-        if (preset?.config) {
-          config = { ...preset.config, prompt: preset.config.prompt || config.prompt };
+        if (preset) {
+          if (preset.systemMessage) systemMessage = preset.systemMessage;
+          if (preset.config) config = { ...preset.config, prompt: preset.config.prompt || config.prompt };
         }
       }
 
@@ -115,7 +166,7 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_prompt: `Gerar roteiro sobre ${details.post.tema_post}`,
-          system_message: 'Você é um roteirista de alta performance.',
+          system_message: systemMessage,
           config
         })
       });
@@ -595,17 +646,36 @@ export default function PostDetailModal({ postId, isOpen, onClose }: PostDetailM
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-6">
-                        {details.imagens.map((img, idx) => (
+                        {details.imagens.map((img, idx) => {
+                          const isUploading = uploadingImageId === (img.id_imagem || img.numero_cena);
+                          return (
                           <div key={idx} className="group relative rounded-2xl overflow-hidden bg-zinc-900 aspect-square border border-zinc-800 transition-all hover:border-orange-500/50">
                             <Image 
                               src={img.image_url || img.url_imagem_fundo || ''} 
                               alt={`Asset ${idx}`} fill unoptimized className="object-cover group-hover:scale-110 transition-transform duration-700" 
                             />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                               <span className="text-[8px] font-black text-white uppercase tracking-widest">Asset #{idx + 1}</span>
+                            {isUploading && (
+                              <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-10">
+                                <Loader2 className="w-6 h-6 text-orange-500 animate-spin" />
+                              </div>
+                            )}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-4 z-20">
+                               <div className="flex items-center justify-between w-full">
+                                 <span className="text-[8px] font-black text-white uppercase tracking-widest">Asset #{idx + 1}</span>
+                                 <label className="cursor-pointer bg-white/10 hover:bg-white/20 p-1.5 rounded-md backdrop-blur-md transition-colors" title="Substituir Imagem">
+                                   <Upload className="w-3 h-3 text-white" />
+                                   <input 
+                                     type="file" 
+                                     accept="image/*" 
+                                     className="hidden" 
+                                     onChange={(e) => handleUploadImage(e, img)}
+                                     disabled={isUploading}
+                                   />
+                                 </label>
+                               </div>
                             </div>
                           </div>
-                        ))}
+                        )})}
                       </div>
                     </div>
                   )}

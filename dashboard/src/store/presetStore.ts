@@ -49,7 +49,8 @@ interface PresetState {
   deletePreset: (id: string) => void;
   setActivePreset: (id: string | null) => void;
   clonePreset: (id: string, name: string, description: string) => Promise<string | null>;
-  createDraftPreset: (track: ContentType, explicitId?: string) => Promise<string | null>;
+  createDraftPreset: (track: ContentType, explicitId?: string, sourcePresetId?: string) => Promise<string | null>;
+  refreshPreset: (id: string) => Promise<void>;
   resetToDefaults: () => void;
 }
 
@@ -60,7 +61,35 @@ export const usePresetStore = create<PresetState>()(
       activePresetId: null,
       isLoading: false,
 
-      createDraftPreset: async (track, explicitId) => {
+      refreshPreset: async (id: string) => {
+        try {
+           const dbPreset = await fetchPresetById(id);
+           if (dbPreset) {
+             const loadedPreset: Preset = {
+               id: dbPreset.id as string,
+               name: dbPreset.name as string,
+               type: (dbPreset.track || 'general') as ContentType,
+               description: (dbPreset.description || '') as string,
+               sessions: (dbPreset.sessions || []) as SystemMessageSession[],
+               prompt: ((dbPreset.config as Record<string, unknown>)?.prompt || '') as string,
+               model: ((dbPreset.config as Record<string, unknown>)?.model || 'gpt5.4') as string,
+               temperature: ((dbPreset.config as Record<string, unknown>)?.temperature ?? 0.7) as number,
+               isFavorite: false,
+               createdAt: dbPreset.created_at as string,
+               updatedAt: dbPreset.updated_at as string,
+               config: dbPreset.config as any
+             };
+             set(state => ({
+               presets: state.presets.map(p => p.id === id ? loadedPreset : p)
+             }));
+             console.log('[Store] Preset refreshed from DB:', id);
+           }
+        } catch (error) {
+           console.error('[Store] Failed to refresh preset:', error);
+        }
+      },
+
+      createDraftPreset: async (track, explicitId, sourcePresetId) => {
         const id = explicitId || crypto.randomUUID();
         
         // 1. Verifica se já existe no estado local
@@ -82,7 +111,7 @@ export const usePresetStore = create<PresetState>()(
              description: (dbPreset.description || '') as string,
              sessions: (dbPreset.sessions || []) as SystemMessageSession[],
              prompt: ((dbPreset.config as Record<string, unknown>)?.prompt || '') as string,
-             model: ((dbPreset.config as Record<string, unknown>)?.model || 'gpt-5.4') as string,
+             model: ((dbPreset.config as Record<string, unknown>)?.model || 'gpt5.4') as string,
              temperature: ((dbPreset.config as Record<string, unknown>)?.temperature ?? 0.7) as number,
              isFavorite: false,
              createdAt: dbPreset.created_at as string,
@@ -99,20 +128,22 @@ export const usePresetStore = create<PresetState>()(
         const shortId = Math.random().toString(36).substring(2, 8).toUpperCase();
         console.log('[Store] Creating new ephemeral draft session:', id);
 
+        const sourcePreset = sourcePresetId ? get().presets.find(p => p.id === sourcePresetId) : null;
+
         const newDraftPreset: Preset = {
           id: id,
-          name: `Draft: ${track} (${shortId})`,
-          description: 'Sandbox efêmero criado automaticamente para esta sessão.',
+          name: sourcePreset ? `Draft: ${sourcePreset.name} (${shortId})` : `Draft: ${track} (${shortId})`,
+          description: sourcePreset ? `Draft da lista baseado em ${sourcePreset.name}` : 'Sandbox efêmero criado automaticamente para esta sessão.',
           type: track,
-          sessions: BACKBONE_SESSIONS,
-          prompt: 'Atue como um Roteirista Master. Sua tarefa é criar roteiros de alta performance, respeitando estritamente as sessões ativas deste Cocreator Studio. Retorne apenas o JSON final.',
-          model: 'gpt-5.4',
-          temperature: 0.7,
+          sessions: sourcePreset ? sourcePreset.sessions : BACKBONE_SESSIONS,
+          prompt: sourcePreset ? sourcePreset.prompt : 'Atue como um Roteirista Master. Sua tarefa é criar roteiros de alta performance, respeitando estritamente as sessões ativas deste Cocreator Studio. Retorne apenas o JSON final.',
+          model: sourcePreset ? sourcePreset.model : 'gpt5.4',
+          temperature: sourcePreset ? sourcePreset.temperature : 0.7,
           isFavorite: false,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           // Config flag used later when converting it to a real preset
-          ...( { config: { is_draft: true } } as any /* eslint-disable-line @typescript-eslint/no-explicit-any */ )
+          ...( { config: { is_draft: true, prompt: sourcePreset ? sourcePreset.prompt : 'Atue como um Roteirista Master. Sua tarefa é criar roteiros de alta performance, respeitando estritamente as sessões ativas deste Cocreator Studio. Retorne apenas o JSON final.', model: sourcePreset ? sourcePreset.model : 'gpt5.4', temperature: sourcePreset ? sourcePreset.temperature : 0.7 } } as any /* eslint-disable-line @typescript-eslint/no-explicit-any */ )
         };
 
         // CORREÇÃO: Para o Agente Arquiteto n8n conseguir atualizar o preset via DB e a UI atualizar via Realtime,
@@ -153,22 +184,47 @@ export const usePresetStore = create<PresetState>()(
               description: (p.description || '') as string,
               sessions: (p.sessions || []) as SystemMessageSession[],
               prompt: ((p.config as Record<string, unknown>)?.prompt || '') as string,
-              model: ((p.config as Record<string, unknown>)?.model || 'gpt-5.4') as string,
+              model: ((p.config as Record<string, unknown>)?.model || 'gpt5.4') as string,
               temperature: ((p.config as Record<string, unknown>)?.temperature ?? 0.7) as number,
               isFavorite: ((p.config as Record<string, unknown>)?.isFavorite === true) as boolean,
               createdAt: p.created_at as string,
               updatedAt: p.updated_at as string,
             }));
 
-          set({ 
-            presets: mappedPresets, 
-            activePresetId: get().activePresetId || (mappedPresets.length > 0 ? mappedPresets[0].id : null),
-            isLoading: false 
-          });
+          if (mappedPresets.length > 0) {
+            set({ 
+              presets: mappedPresets, 
+              activePresetId: get().activePresetId || mappedPresets[0].id,
+              isLoading: false 
+            });
+          } else {
+            // Fallback to DEFAULT_PRESETS if DB is empty or fetching failed
+            const newPresets = DEFAULT_PRESETS.map(p => ({
+              ...p,
+              id: crypto.randomUUID(),
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }));
+            set({ 
+              presets: newPresets, 
+              activePresetId: newPresets[0].id,
+              isLoading: false 
+            });
+          }
 
         } catch (error) {
           console.error('Error initializing presets:', error);
-          set({ isLoading: false });
+          const newPresets = DEFAULT_PRESETS.map(p => ({
+            ...p,
+            id: crypto.randomUUID(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }));
+          set({ 
+            presets: newPresets, 
+            activePresetId: newPresets[0].id,
+            isLoading: false 
+          });
         }
       },
 
@@ -283,7 +339,7 @@ export const DEFAULT_PRESETS: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>[] =
     name: 'Vídeo Paulistana Master',
     type: 'video',
     description: 'Estratégia completa para TikTok Shop e Instagram baseada no framework Paulistana.',
-    model: 'gpt-5.4',
+    model: 'gpt5.4',
     temperature: 0.7,
     prompt: 'Atue como a IA Roteirista da marca \'Paulistana Empório\', especializada em alimentação saudável e suplementação natural. Sua tarefa é criar roteiros de alta performance para vídeos de Instagram e TikTok Shop, respeitando estritamente as sessões ativas do cockpit.',
     sessions: [
@@ -349,7 +405,7 @@ export const DEFAULT_PRESETS: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>[] =
     name: 'Carrossel Satori Viral',
     type: 'carrossel',
     description: 'Estrategista de Retenção Visual e Copywriter Chefe focado em deslize extremo.',
-    model: 'gpt-5.4',
+    model: 'gpt5.4',
     temperature: 0.7,
     prompt: 'Crie um carrossel altamente viral reduzindo a carga cognitiva.',
     sessions: [
@@ -394,7 +450,7 @@ export const DEFAULT_PRESETS: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>[] =
     name: 'Blog SEO Autoridade',
     type: 'blog',
     description: 'Head de Technical SEO e Especialista em Nutrição Ortomolecular para artigos enciclopédicos.',
-    model: 'gpt-5.4',
+    model: 'gpt5.4',
     temperature: 0.7,
     prompt: 'Crie um artigo enciclopédico com alta autoridade tópica.',
     sessions: [
@@ -432,7 +488,7 @@ export const DEFAULT_PRESETS: Omit<Preset, 'id' | 'createdAt' | 'updatedAt'>[] =
     name: 'Vídeo Marketplace',
     type: 'video',
     description: 'Framework para anúncios focados em venda direta ESTRITAMENTE para Marketplace (Mercado Livre, Amazon, TikTok Shop).',
-    model: 'gpt-5.4',
+    model: 'gpt5.4',
     temperature: 0.7,
     prompt: 'CRIE AGORA O ROTEIRO E INICIE A PRODUÇÃO EXCLUSIVAMENTE PARA ESTE PRODUTO ABAIXO. IGNORE QUALQUER PRODUTO ANTERIOR.\n\nNome do Produto: [PRODUTO]\nSlug da Imagem: [SLUG]\n\n[RESTRIÇÕES ESPECÍFICAS DESTE PRODUTO]\nRestrição Narrativa: [NARRATIVA]\nRestrição Visual: [VISUAL]\n\nInstrução Final: Respeite as restrições acima. Você DEVE usar estritamente o "Nome do Produto" e o "Slug da Imagem" declarados nesta mensagem.',
     sessions: [

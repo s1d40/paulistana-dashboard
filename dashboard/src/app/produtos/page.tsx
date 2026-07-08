@@ -1,7 +1,8 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
-import { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useMemo, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { 
   Package, 
   Search, 
@@ -16,7 +17,12 @@ import {
   RefreshCcw,
   ShoppingBag,
   Store,
-  Video
+  Video,
+  Plus,
+  UploadCloud,
+  X,
+  Image as ImageIcon,
+  Edit3
 } from 'lucide-react';
 import Image from 'next/image';
 import clsx from 'clsx';
@@ -50,9 +56,22 @@ const fetchInventory = async (): Promise<InventoryItem[]> => {
 };
 
 export default function GerenciadorProdutosPage() {
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [isGenerating, setIsGenerating] = useState<string | null>(null);
+
+  // Upload/Manage Images state
+  const [isUploading, setIsUploading] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imageManageTarget, setImageManageTarget] = useState<InventoryItem | null>(null);
+  const [uploadingType, setUploadingType] = useState<'real' | 'embalagem' | null>(null);
+
+  // New Product Modal state
+  const [isNewProductModalOpen, setIsNewProductModalOpen] = useState(false);
+  const [newProductTitle, setNewProductTitle] = useState('');
+  const [newProductPrice, setNewProductPrice] = useState('');
+  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
 
   const { data: allProducts = [], isLoading, error } = useQuery({
     queryKey: ['inventoryList'],
@@ -76,6 +95,82 @@ export default function GerenciadorProdutosPage() {
       alert('Erro ao enviar solicitação de criação.');
     } finally {
       setIsGenerating(null);
+    }
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !imageManageTarget || !uploadingType) return;
+
+    setIsUploading(uploadingType);
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('productTitle', imageManageTarget.title);
+    formData.append('imageType', uploadingType);
+    
+    const existingSlug = uploadingType === 'real' 
+      ? imageManageTarget.slug_imagem_real 
+      : imageManageTarget.slug_embalagem;
+      
+    if (existingSlug) {
+      formData.append('existingSlug', existingSlug);
+    }
+
+    try {
+      const res = await fetch('/api/products/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Falha no upload da imagem');
+      
+      // Atualizar target localmente pra refletir na UI do modal
+      setImageManageTarget(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          ...(uploadingType === 'real' ? { slug_imagem_real: data.slug } : { slug_embalagem: data.slug })
+        };
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['inventoryList'] });
+    } catch (error: any) {
+      console.error(error);
+      alert(error.message || 'Erro ao fazer upload da imagem.');
+    } finally {
+      setIsUploading(null);
+      setUploadingType(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProductTitle.trim()) return;
+
+    setIsCreatingProduct(true);
+    try {
+      const res = await fetch('/api/products/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newProductTitle, price: newProductPrice }),
+      });
+
+      if (!res.ok) throw new Error('Falha na criação do produto');
+
+      alert(`Produto "${newProductTitle}" adicionado com sucesso!`);
+      setIsNewProductModalOpen(false);
+      setNewProductTitle('');
+      setNewProductPrice('');
+      queryClient.invalidateQueries({ queryKey: ['inventoryList'] });
+    } catch (error) {
+      console.error(error);
+      alert('Erro ao criar novo produto.');
+    } finally {
+      setIsCreatingProduct(false);
     }
   };
 
@@ -136,6 +231,13 @@ export default function GerenciadorProdutosPage() {
               }}
             />
           </div>
+          <button 
+            onClick={() => setIsNewProductModalOpen(true)}
+            className="bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold py-3 px-4 rounded-xl flex items-center gap-2 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 transition-all whitespace-nowrap"
+          >
+            <Plus className="w-5 h-5" />
+            <span className="hidden md:inline">Novo Produto</span>
+          </button>
         </div>
       </div>
 
@@ -189,6 +291,7 @@ export default function GerenciadorProdutosPage() {
               const pkgImg = getAssetUrl('embalagens', product.slug_embalagem);
               
               const hasAssets = realImg || pkgImg;
+              const hasBoth = realImg && pkgImg;
 
               return (
                 <div key={product.id} className="group bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden hover:border-slate-600 hover:shadow-2xl hover:shadow-amber-500/5 transition-all duration-300 flex flex-col">
@@ -208,9 +311,9 @@ export default function GerenciadorProdutosPage() {
                       </div>
                     )}
 
-                    {!hasAssets && (
+                    {!hasBoth && (
                       <div className="absolute top-2 right-2 bg-red-500/80 backdrop-blur text-white text-[10px] font-bold px-2 py-1 rounded-md">
-                        Sem Foto Mapeada
+                        {hasAssets ? "Falta Imagem" : "Sem Foto Mapeada"}
                       </div>
                     )}
                   </div>
@@ -247,26 +350,42 @@ export default function GerenciadorProdutosPage() {
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => handleGenerateCreative(product.title)}
-                        disabled={!!isGenerating || !hasAssets}
-                        className={clsx(
-                          "w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all",
-                          isGenerating === product.title
-                            ? "bg-slate-800 text-amber-500 cursor-not-allowed"
-                            : hasAssets
-                              ? "bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40"
-                              : "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
-                        )}
-                      >
-                        {isGenerating === product.title ? (
-                          <><Loader2 className="w-5 h-5 animate-spin" /> Produzindo...</>
-                        ) : hasAssets ? (
-                          <><PlayCircle className="w-5 h-5" /> Criar Vídeo</>
-                        ) : (
-                          <><Camera className="w-5 h-5" /> Foto Pendente</>
-                        )}
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            if (!hasAssets) return;
+                            handleGenerateCreative(product.title);
+                          }}
+                          disabled={!!isGenerating || !hasAssets}
+                          className={clsx(
+                            "flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all",
+                            isGenerating === product.title
+                              ? "bg-slate-800 text-amber-500 cursor-not-allowed"
+                              : hasAssets
+                                ? "bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40"
+                                : "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+                          )}
+                        >
+                          {isGenerating === product.title ? (
+                            <><Loader2 className="w-5 h-5 animate-spin" /> Produzindo...</>
+                          ) : hasAssets ? (
+                            <><PlayCircle className="w-5 h-5" /> Criar Vídeo</>
+                          ) : (
+                            <><Camera className="w-5 h-5" /> Pendente</>
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => setImageManageTarget(product)}
+                          className={clsx(
+                            "px-4 py-3 rounded-xl border border-slate-700 flex items-center justify-center transition-all",
+                            hasBoth ? "bg-slate-800 hover:bg-slate-700 text-slate-400" : "bg-slate-800 hover:bg-slate-700 text-white"
+                          )}
+                          title="Gerenciar Imagens do Produto"
+                        >
+                          <ImageIcon className={clsx("w-5 h-5", !hasBoth && "text-amber-500")} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -297,6 +416,157 @@ export default function GerenciadorProdutosPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Hidden File Input (reused for both image types) */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        className="hidden"
+        accept="image/*"
+      />
+
+      {/* Image Management Modal */}
+      {imageManageTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setImageManageTarget(null)} />
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 relative z-10 shadow-2xl">
+            <button 
+              onClick={() => setImageManageTarget(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-2">
+              <ImageIcon className="w-5 h-5 text-amber-500" />
+              Gerenciar Imagens: <span className="text-amber-500">{imageManageTarget.title}</span>
+            </h2>
+            <p className="text-slate-400 text-sm mb-6">Mapeie as imagens corretas para gerar conteúdos realistas deste produto.</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Foto Real */}
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col items-center">
+                <h3 className="font-bold text-slate-300 mb-4 text-sm uppercase tracking-wider">Foto do Produto Real</h3>
+                <div className="w-full h-40 bg-slate-900 rounded-lg flex items-center justify-center border border-dashed border-slate-700 overflow-hidden relative mb-4">
+                  {imageManageTarget.slug_imagem_real ? (
+                    <img src={getAssetUrl('produtos_reais', imageManageTarget.slug_imagem_real) || ""} className="w-full h-full object-cover" />
+                  ) : (
+                    <Package className="w-8 h-8 text-slate-700" />
+                  )}
+                  {isUploading === 'real' && (
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setUploadingType('real');
+                    fileInputRef.current?.click();
+                  }}
+                  disabled={!!isUploading}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition-all border border-slate-700 text-sm"
+                >
+                  <UploadCloud className="w-4 h-4 text-amber-500" />
+                  {imageManageTarget.slug_imagem_real ? "Substituir Imagem" : "Upload Imagem Real"}
+                </button>
+              </div>
+
+              {/* Foto Embalagem */}
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 flex flex-col items-center">
+                <h3 className="font-bold text-slate-300 mb-4 text-sm uppercase tracking-wider">Foto da Embalagem</h3>
+                <div className="w-full h-40 bg-slate-900 rounded-lg flex items-center justify-center border border-dashed border-slate-700 overflow-hidden relative mb-4">
+                  {imageManageTarget.slug_embalagem ? (
+                    <img src={getAssetUrl('embalagens', imageManageTarget.slug_embalagem) || ""} className="w-full h-full object-cover" />
+                  ) : (
+                    <Package className="w-8 h-8 text-slate-700" />
+                  )}
+                  {isUploading === 'embalagem' && (
+                    <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                      <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setUploadingType('embalagem');
+                    fileInputRef.current?.click();
+                  }}
+                  disabled={!!isUploading}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-white font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition-all border border-slate-700 text-sm"
+                >
+                  <UploadCloud className="w-4 h-4 text-amber-500" />
+                  {imageManageTarget.slug_embalagem ? "Substituir Embalagem" : "Upload Embalagem"}
+                </button>
+              </div>
+            </div>
+            
+            <div className="mt-6 flex justify-end">
+              <button 
+                onClick={() => setImageManageTarget(null)}
+                className="bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold py-2 px-6 rounded-xl transition-all"
+              >
+                Concluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Product Modal */}
+      {isNewProductModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsNewProductModalOpen(false)} />
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 relative z-10 shadow-2xl">
+            <button 
+              onClick={() => setIsNewProductModalOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2 mb-6">
+              <Package className="w-5 h-5 text-amber-500" />
+              Adicionar Novo Produto
+            </h2>
+            
+            <form onSubmit={handleCreateProduct}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-400 mb-1">Título do Produto *</label>
+                <input 
+                  type="text" 
+                  value={newProductTitle}
+                  onChange={(e) => setNewProductTitle(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition-all"
+                  placeholder="Ex: Canela em Pau 100g"
+                  required
+                />
+              </div>
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-slate-400 mb-1">Preço Médio (Opcional)</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  value={newProductPrice}
+                  onChange={(e) => setNewProductPrice(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition-all"
+                  placeholder="0.00"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isCreatingProduct || !newProductTitle.trim()}
+                className="w-full bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              >
+                {isCreatingProduct ? (
+                  <><Loader2 className="w-5 h-5 animate-spin" /> Criando...</>
+                ) : (
+                  <>Adicionar Produto</>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

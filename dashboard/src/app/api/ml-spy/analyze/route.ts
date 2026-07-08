@@ -109,7 +109,7 @@ ${reviewTexts || 'A API ocultou as avaliações. Como não temos reviews do anú
           user_prompt: userPrompt,
           system_message: systemMessage,
           config: {
-            model: "claude-sonnet-4-6", // Modelo sugerido
+            model: "cloude sonnet 4.6", // Modelo sugerido
             temperature: 0.7,
             prompt: "Retorne o texto formatado em markdown com as 4 seções solicitadas."
           }

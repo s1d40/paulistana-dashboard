@@ -13,6 +13,7 @@ import { useParams } from 'next/navigation';
 import { StudioCopilot } from './studio-copilot';
 import clsx from 'clsx';
 import Image from 'next/image';
+import { IMAGE_MODELS, modelIdToUrl, urlToModelId } from '@/lib/image-models';
 import { supabase } from '@/lib/supabase';
 import MultiProductSelector from '@/components/multi-product-selector';
 import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
@@ -39,11 +40,11 @@ const ANIMATION_OPTIONS = [
   { id: 'static', label: 'Estático' }
 ];
 
-const AVAILABLE_MODELS = [
-  { label: 'Nano Banana (Google)', url: 'https://api.replicate.com/v1/models/google/nano-banana/predictions' },
-  { label: 'Flux Schnell (Pruna)', url: 'https://api.replicate.com/v1/models/prunaai/flux-fast/predictions' },
-  { label: 'Z-Image Turbo', url: 'https://api.replicate.com/v1/models/prunaai/z-image-turbo/predictions' },
-];
+// Modelos disponíveis agora vêm do arquivo centralizado
+const AVAILABLE_MODELS = IMAGE_MODELS.map(m => ({
+  label: m.label,
+  url: modelIdToUrl(m.id),
+}));
 
 export const VideoStudio: React.FC<VideoStudioProps> = ({ 
   data, 

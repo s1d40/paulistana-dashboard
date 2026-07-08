@@ -7,7 +7,7 @@ set -e
 
 # Configurações do Servidor Remoto
 REMOTE_USER="root"
-REMOTE_HOST="62.238.22.162"
+REMOTE_HOST="204.168.214.139"
 TARGET_DIR="/var/www/painel.paulistanaemporio.com"
 PM2_ID="0"
 REMOTE_NODE_PATH="/root/.nvm/versions/node/v20.20.2/bin"

@@ -40,11 +40,12 @@ export interface ChatPanelProps {
   metadata?: Record<string, any>;
   onInputChange?: (val: string) => void;
   onToolSuccess?: (toolName: string) => void;
+  architectComponent?: React.ReactNode;
 }
 
 export default function ChatPanel({ 
   title, description, apiEndpoint, icon, systemMessage, initialPrompt,
-  inputValue, sessionId: externalSessionId, metadata, onInputChange, onToolSuccess
+  inputValue, sessionId: externalSessionId, metadata, onInputChange, onToolSuccess, architectComponent
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [internalInput, setInternalInput] = useState('');
@@ -57,7 +58,11 @@ export default function ChatPanel({
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [internalSessionId] = useState(() => `session-${Math.random().toString(36).substring(2, 10)}`);
   const activeSessionId = externalSessionId || internalSessionId;
-  const [activeView, setActiveView] = useState<'chat' | 'gallery'>('chat');
+  const [activeView, setActiveView] = useState<'chat' | 'gallery' | 'architect'>('chat');
+
+  useEffect(() => {
+    console.log("🔥 CHAT PANEL MOUNTED! architectComponent is:", !!architectComponent);
+  }, [architectComponent]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -351,12 +356,33 @@ export default function ChatPanel({
             </span>
           )}
         </button>
+        {architectComponent && (
+          <button 
+            onClick={() => setActiveView('architect')}
+            className={clsx(
+              "flex-1 md:flex-none p-4 flex flex-col items-center gap-1 transition-all",
+              activeView === 'architect' ? "bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-400" : "text-zinc-400 hover:text-zinc-600"
+            )}
+            title="Arquiteto"
+          >
+            <div className="relative">
+              <Bot className="w-6 h-6" />
+              <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-tighter">Arquiteto</span>
+          </button>
+        )}
       </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col relative min-w-0">
         
-        {activeView === 'chat' ? (
+        {activeView === 'architect' && architectComponent ? (
+          architectComponent
+        ) : activeView === 'chat' ? (
           <>
             {/* Header */}
             <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">

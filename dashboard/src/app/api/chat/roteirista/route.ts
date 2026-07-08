@@ -4,17 +4,33 @@ export const maxDuration = 120; // Aumentado pois geração de roteiro complexo 
 
 export async function POST(req: Request) {
   try {
-    const { user_prompt, system_message, config, image_url, image_url_packaging } = await req.json();
+    const { id_post, user_prompt, message, system_message, systemMessage, config, image_url, image_url_packaging } = await req.json();
+
+    // Use message if provided (from ChatPanel), else user_prompt
+    const finalUserPrompt = message || user_prompt || "Gere um roteiro";
+    const finalSystemMessage = systemMessage || system_message || "";
 
     // URL do seu novo Worker_Roteirista Stateless no n8n
     const N8N_ROTEIRISTA_WEBHOOK = 'https://n8n.sfaisolutions.com/webhook/1a24782d-a935-454f-af0a-be3a57e42a32';
 
+    // Inject video format and subtitles config into the system message so the AI includes it in the JSON output
+    const isLandscape = config?.formato_video === 'landscape';
+    const hasSubtitles = config?.com_legendas !== false;
+    
+    const configInstruction = `\n\n[INSTRUÇÃO CRÍTICA DE CONFIGURAÇÃO]
+Você DEVE incluir OBRIGATORIAMENTE na raiz do JSON final as seguintes duas propriedades exatamente como mostradas abaixo:
+"formato_video": "${isLandscape ? 'landscape' : 'portrait'}",
+"com_legendas": ${hasSubtitles ? 'true' : 'false'}`;
+
+    const system_message_with_config = finalSystemMessage + configInstruction;
+
     const payloadBody = {
-      user_prompt,
-      system_message,
+      id_post: id_post,
+      user_prompt: finalUserPrompt,
+      system_message: system_message_with_config,
       image_url,
       image_url_packaging,
-      config: config || { temperature: 0.7, model: "gpt-5.4" }
+      config: config || { temperature: 0.7, model: "gpt-4o", prompt: "" }
     };
 
     let response = await fetch(N8N_ROTEIRISTA_WEBHOOK, {

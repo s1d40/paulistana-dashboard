@@ -4,7 +4,7 @@
 # Script de Deploy e Sincronização - Cocreator Content Studio (Next.js)
 # ==============================================================================
 # Este script realiza o build de produção local do Next.js e sincroniza os
-# arquivos compilados com o servidor live (root@62.238.22.162),
+# arquivos compilados com o servidor live (root@204.168.214.139),
 # preservando as configurações e arquivos do WordPress (WordOps) e reiniciando
 # o frontend via PM2.
 # ==============================================================================
@@ -14,13 +14,13 @@ set -e
 
 # Configurações do Servidor Remoto
 REMOTE_USER="root"
-REMOTE_HOST="62.238.22.162"
-PM2_ID="0"
+REMOTE_HOST="204.168.214.139"
+PM2_ID="dashboard"
 REMOTE_NODE_PATH="/root/.nvm/versions/node/v20.20.2/bin"
 
 # DIRETÓRIO DE DESTINO (CWD do PM2 no Servidor)
 # TODO: Substitua pelo diretório absoluto que você obteve executando:
-# ssh root@62.238.22.162 "export PATH=\"/root/.nvm/versions/node/v20.20.2/bin:\$PATH\" && pm2 show 55"
+# ssh root@204.168.214.139 "export PATH=\"/root/.nvm/versions/node/v20.20.2/bin:\$PATH\" && pm2 show 55"
 TARGET_DIR="/var/www/painel.paulistanaemporio.com"
 
 # Diretórios Locais (baseados no repositório)
@@ -52,6 +52,7 @@ if [ -d ".next" ]; then
   rm -rf .next
 fi
 
+export NODE_ENV=production
 npm run build
 echo "✅ Build local concluído com sucesso!"
 

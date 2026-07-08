@@ -1,16 +1,31 @@
 import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
 export async function GET(request: Request) {
-  const ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN;
-  const IG_ACCOUNT_ID = process.env.INSTAGRAM_ACCOUNT_ID;
-
-  if (!ACCESS_TOKEN || !IG_ACCOUNT_ID) {
-    return NextResponse.json({ error: 'Faltam credenciais do Instagram no .env.local' }, { status: 500 });
-  }
-
   try {
+    const { searchParams } = new URL(request.url);
+    const accountId = searchParams.get('accountId');
+
+    let query = supabase
+      .from('contas')
+      .select('conta_id_instagram, ig_access_token')
+      .not('conta_id_instagram', 'is', null);
+
+    if (accountId) {
+      query = query.eq('id_conta', accountId);
+    }
+
+    const { data: account, error: accError } = await query.limit(1).single();
+
+    if (accError || !account) {
+      return NextResponse.json({ error: 'Nenhuma conta do Instagram conectada no banco de dados' }, { status: 404 });
+    }
+
+    const ACCESS_TOKEN = account.ig_access_token;
+    const IG_ACCOUNT_ID = account.conta_id_instagram;
+
     // Busca dados gerais do perfil (Seguidores, publicações)
-    const profileRes = await fetch(`https://graph.facebook.com/v19.0/${IG_ACCOUNT_ID}?fields=followers_count,media_count,profile_picture_url,username&access_token=${ACCESS_TOKEN}`);
+    const profileRes = await fetch(`https://graph.facebook.com/v21.0/${IG_ACCOUNT_ID}?fields=followers_count,media_count,profile_picture_url,username&access_token=${ACCESS_TOKEN}`);
     const profileData = await profileRes.json();
 
     if (profileData.error) {
@@ -18,7 +33,7 @@ export async function GET(request: Request) {
     }
 
     // Busca os 10 posts mais recentes (Reels/Imagens) com métricas
-    const mediaRes = await fetch(`https://graph.facebook.com/v19.0/${IG_ACCOUNT_ID}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=10&access_token=${ACCESS_TOKEN}`);
+    const mediaRes = await fetch(`https://graph.facebook.com/v21.0/${IG_ACCOUNT_ID}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=10&access_token=${ACCESS_TOKEN}`);
     const mediaData = await mediaRes.json();
 
     // Para Reels ou vídeos, Instagram permite buscar 'plays' e 'reach' via Insights,

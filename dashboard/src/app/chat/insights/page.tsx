@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import ChatPanel from '@/components/chat-panel';
 import { LineChart } from 'lucide-react';
 

@@ -1,4 +1,5 @@
 'use client';
+export const dynamic = 'force-dynamic';
 
 import { useState, useRef, useEffect, Suspense, useCallback } from 'react';
 import { 
@@ -8,12 +9,12 @@ import {
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { updatePresetInSupabase, fetchPresetById } from '@/services/supabase-service';
+import { updatePresetInSupabase, fetchPresetById, fetchProducts } from '@/services/supabase-service';
 import { usePresetStore, SystemMessageSession, ContentType } from '@/store/presetStore';
 import { supabase } from '@/lib/supabase';
 import { useRouter, useSearchParams } from 'next/navigation';
 import clsx from 'clsx';
-import { fetchProducts, Product } from '@/services/google-sheets';
+import { Product } from '@/services/google-sheets';
 import MultiProductSelector from '@/components/multi-product-selector';
 
 interface Message {
@@ -74,11 +75,11 @@ function ChatContent() {
   // --- SCRIPTWRITER (PRODUCTION) DNA ---
   const [localSessions, setLocalSessions] = useState<SystemMessageSession[]>([]);
   const [localPrompt, setLocalPrompt] = useState('');
-  const [localModel, setLocalModel] = useState('gpt-5.4');
+  const [localModel, setLocalModel] = useState('gpt5.4');
   const [localTemp, setLocalTemp] = useState(0.7);
 
   // --- COCREATOR (ARCHITECT) DNA ---
-  const [arcModel, setArcModel] = useState('models/gemini-3.1-pro-preview');
+  const [arcModel, setArcModel] = useState('gemini 3.1 pro');
   const [arcPrompt, setArcPrompt] = useState(DEFAULT_ARCHITECT_PROMPT);
   const [useRealProducts, setUseRealProducts] = useState(false);
   const [isArcSidebarOpen, setIsArcSidebarOpen] = useState(false);
@@ -167,7 +168,7 @@ function ChatContent() {
         
         setLocalSessions(sessions);
         setLocalPrompt((config.prompt as string) || '');
-        setLocalModel((config.model as string) || 'gpt-5.4');
+        setLocalModel((config.model as string) || 'gpt5.4');
         setLocalTemp((config.temperature as number) ?? 0.7);
       } else {
         const draftPreset = usePresetStore.getState().presets.find(p => p.id === (confirmedId || finalId));
@@ -300,7 +301,7 @@ function ChatContent() {
       const config = (freshData.config as Record<string, unknown>) || {};
       setLocalSessions(sessions);
       setLocalPrompt((config.prompt as string) || '');
-      setLocalModel((config.model as string) || 'gpt-5.4');
+      setLocalModel((config.model as string) || 'gpt5.4');
       setLocalTemp((config.temperature as number) ?? 0.7);
     } else {
       const draftPreset = usePresetStore.getState().presets.find(p => p.id === activePresetId);
@@ -551,56 +552,15 @@ function ChatContent() {
         }).filter(Boolean);
       }
 
-      const response = await fetch('/api/chat/roteirista', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_prompt: messages[messages.length - 1]?.content || 'Gere o vídeo com base no cockpit.',
-          system_message: systemMessage,
-          image_url: imageUrls.length > 0 ? (imageUrls.length === 1 ? imageUrls[0] : imageUrls) : undefined,
-          image_url_packaging: packagingUrls.length > 0 ? (packagingUrls.length === 1 ? packagingUrls[0] : packagingUrls) : undefined,
-          config: {
-            model: localModel,
-            temperature: localTemp,
-            prompt: finalScriptPrompt
-          }
-        }),
-      });
-
-      if (!response.ok) throw new Error('Erro na geração');
-      const { script: generatedScript } = await response.json();
-      
-      let parsedScript = generatedScript;
-      if (typeof generatedScript === 'string') {
-        try { parsedScript = JSON.parse(generatedScript); } catch (e) {}
-      }
-
-      // Validação agressiva de Erros para evitar carregar o estúdio infinitamente
-      if (!parsedScript) {
-        throw new Error('A IA não retornou nenhum roteiro válido.');
-      }
-      
-      if (typeof parsedScript === 'string' && (parsedScript.toLowerCase().includes('error') || parsedScript.toLowerCase().includes('erro') || parsedScript.toLowerCase().includes('api key'))) {
-        throw new Error(`Erro retornado pela IA: ${parsedScript}`);
-      }
-      
-      if (typeof parsedScript === 'object' && (parsedScript.error || parsedScript.message?.toLowerCase().includes('error'))) {
-        throw new Error(`Erro na IA: ${parsedScript.error || parsedScript.message}`);
-      }
-      
-      if (typeof parsedScript === 'object' && !parsedScript.cenas && !parsedScript.slides && !parsedScript.secoes) {
-        throw new Error('O roteiro gerado não possui a estrutura correta (cenas, slides ou seções). Verifique o modelo ou N8N.');
-      }
-      
-      // Reutiliza o idPost (Sessão) ou o activePresetId para garantir que o Post tenha o mesmo ID do Preset salvo
+      // 1. Reutiliza o idPost (Sessão) ou o activePresetId para garantir que o Post tenha o mesmo ID do Preset salvo
       const finalId = idPost || activePresetId || (typeof crypto !== 'undefined' ? crypto.randomUUID() : Date.now().toString());
       
-      // Atualiza explicitamente o preset no DB para garantir que as últimas modificações sejam salvas com este ID
+      // 2. Atualiza explicitamente o preset no DB para garantir que as últimas modificações sejam salvas com este ID
       const currentPreset = usePresetStore.getState().presets.find(p => p.id === activePresetId);
       if (currentPreset && finalId) {
         await supabase.from('content_presets').upsert({
           id: finalId,
-          name: postTitle ? `[Auto] ${postTitle}` : `[Auto] ${parsedScript?.titulo_otimizado || 'Sem Título'}`,
+          name: postTitle ? `[Auto] ${postTitle}` : `[Auto] Sem Título`,
           description: currentPreset.description || 'Preset vinculado automaticamente ao post.',
           track: currentPreset.type || track,
           sessions: localSessions,
@@ -613,16 +573,17 @@ function ChatContent() {
         }, { onConflict: 'id' });
       }
 
+      // 3. Inicializa o POST no banco (status Gerando Roteiro)
       const prodRes = await fetch('/api/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           action: 'init_post',
           id_post: finalId,
-          tema_post: parsedScript?.tema || 'Novo Vídeo',
-          titulo_post: postTitle || parsedScript?.titulo_otimizado || 'Sem Título',
-          roteiro_gerado: typeof parsedScript === 'string' ? parsedScript : JSON.stringify(parsedScript),
-          status: 'Aguardando Revisão',
+          tema_post: postTitle || 'Novo Vídeo',
+          titulo_post: postTitle || 'Sem Título',
+          roteiro_gerado: JSON.stringify({ status: 'Gerando...' }),
+          status: 'Processando Roteiro',
           id_conta: (window as Window & { _current_id_conta?: string })._current_id_conta || 'b3f9c2d1-7e84-4a56-9d2b-1f8e3c6a4b90' 
         }),
       });
@@ -630,6 +591,45 @@ function ChatContent() {
       if (!prodRes.ok) {
         const errData = await prodRes.json();
         throw new Error(errData.error || 'Erro ao registrar post no banco.');
+      }
+
+      // 4. Dispara a Geração via n8n (Async)
+      const response = await fetch('/api/chat/roteirista', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id_post: finalId,
+          user_prompt: messages[messages.length - 1]?.content || 'Gere o vídeo com base no cockpit.',
+          system_message: systemMessage,
+          image_url: imageUrls.length > 0 ? (imageUrls.length === 1 ? imageUrls[0] : imageUrls) : undefined,
+          image_url_packaging: packagingUrls.length > 0 ? (packagingUrls.length === 1 ? packagingUrls[0] : packagingUrls) : undefined,
+          config: {
+            model: localModel,
+            temperature: localTemp,
+            prompt: finalScriptPrompt
+          }
+        }),
+      });
+
+      if (!response.ok) throw new Error('Erro na comunicação com n8n para gerar o roteiro');
+
+      // 5. Aguarda (Polling) o roteiro ser salvo no Supabase pelo n8n
+      let roteiroPronto = null;
+      for (let i = 0; i < 40; i++) { // Máximo de 120 segundos
+        await new Promise(r => setTimeout(r, 3000));
+        const { data, error } = await supabase.from('posts').select('roteiro_gerado').eq('id_post', finalId).maybeSingle();
+        
+        if (data && data.roteiro_gerado) {
+          const rgStr = typeof data.roteiro_gerado === 'string' ? data.roteiro_gerado : JSON.stringify(data.roteiro_gerado);
+          if (!rgStr.includes('"status":"Gerando..."') && (rgStr.includes('cenas') || rgStr.includes('slides') || rgStr.includes('secoes'))) {
+             roteiroPronto = data.roteiro_gerado;
+             break;
+          }
+        }
+      }
+
+      if (!roteiroPronto) {
+        throw new Error('Tempo limite excedido aguardando o roteiro do n8n. Ele ainda pode estar gerando no plano de fundo. Acesse o painel de produção mais tarde.');
       }
 
       router.push(`/conteudo/editor/${finalId}`);
@@ -729,9 +729,9 @@ function ChatContent() {
                 }} 
                 className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-1.5 text-[9px] font-bold text-zinc-300 outline-none focus:ring-1 focus:ring-indigo-500"
               >
-                <option value="gpt-5.4">GPT-5.4 (Turbo)</option>
-                <option value="claude-sonnet-4-6">Claude 4.6</option>
-                <option value="models/gemini-3.1-pro-preview">Gemini 3.1 Pro</option>
+                <option value="gpt5.4">GPT-5.4 (Turbo)</option>
+                <option value="cloude sonnet 4.6">Claude 4.6</option>
+                <option value="gemini 3.1 pro">Gemini 3.1 Pro</option>
               </select>
             </div>
             <div className="space-y-1">
@@ -872,9 +872,9 @@ function ChatContent() {
             <div className="space-y-2">
               <label className="text-[8px] font-black text-zinc-500 uppercase tracking-tighter flex items-center gap-1">Modelo do Arquiteto</label>
               <select value={arcModel} onChange={(e) => setArcModel(e.target.value)} className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-[10px] font-bold text-zinc-200 outline-none focus:ring-1 focus:ring-indigo-500 transition-all appearance-none cursor-pointer shadow-lg shadow-black/40">
-                <option value="gpt-5.4">GPT-5.4 (Orchestrator)</option>
-                <option value="claude-sonnet-4-6">Claude 4.6 (Stylist)</option>
-                <option value="models/gemini-3.1-pro-preview">Gemini 3.1 Pro (Architect)</option>
+                <option value="gpt5.4">GPT-5.4 (Orchestrator)</option>
+                <option value="cloude sonnet 4.6">Claude 4.6 (Stylist)</option>
+                <option value="gemini 3.1 pro">Gemini 3.1 Pro (Architect)</option>
               </select>
             </div>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useTheme } from 'next-themes';
-import { Sun, Moon, Sunrise, Sunset, Monitor } from 'lucide-react';
+import { Sun, Moon, Sunrise, Sunset, CloudSun, MoonStar } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 
@@ -19,8 +19,10 @@ export default function ThemeToggle({ isCollapsed }: { isCollapsed?: boolean }) 
 
   const themes = [
     { id: 'light', name: 'Claro', icon: Sun },
+    { id: 'offwhite', name: 'Offwhite', icon: CloudSun },
     { id: 'dark', name: 'Escuro', icon: Moon },
     { id: 'sunset', name: 'Fim de Tarde', icon: Sunset },
+    { id: 'offblack', name: 'Off Black', icon: MoonStar },
     { id: 'dawn', name: 'Madrugada', icon: Sunrise },
   ];
 

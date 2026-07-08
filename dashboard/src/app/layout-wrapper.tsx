@@ -1,18 +1,23 @@
 'use client';
 
 import Sidebar from "@/components/sidebar";
-import { usePathname } from 'next/navigation';
+import { useState, useEffect } from 'react';
 
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const isLoginPage = pathname === '/login';
+  const [pathname, setPathname] = useState('');
+
+  useEffect(() => {
+    setPathname(window.location.pathname);
+  }, []);
+
+  const isLoginPage = pathname === '/login' || pathname === '/register';
 
   return (
-    <body className="h-screen flex overflow-hidden">
+    <div className="h-screen flex overflow-hidden">
       {!isLoginPage && <Sidebar />}
       <div className="flex flex-1 flex-col overflow-y-auto">
         {children}
       </div>
-    </body>
+    </div>
   );
 }
