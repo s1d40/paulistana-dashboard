@@ -19,7 +19,7 @@ export async function GET(request: Request) {
     // 1. Buscar credenciais da conta
     const { data: account, error: accError } = await supabase
       .from('contas')
-      .select('conta_id_instagram, ig_access_token, nome_conta')
+      .select('conta_id_instagram, ig_access_token, conta_id_facebook, facebook_access_token, nome_conta')
       .eq('id_conta', accountId)
       .single();
 
@@ -33,10 +33,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Credenciais do Instagram ausentes nesta conta' }, { status: 400 });
     }
 
-    // 2. Buscar posts recentes com comentários
-    const mediaUrl = `https://graph.facebook.com/v21.0/${conta_id_instagram}/media?fields=id,caption,thumbnail_url,media_url,timestamp,media_type,comments.limit(10){id,text,username,timestamp,like_count,replies{id,text,username,timestamp}}&limit=10&access_token=${ig_access_token}`;
+    // 2. Determinar API com base no token disponível
+    let mediaUrl = '';
+    const { facebook_access_token, conta_id_facebook } = account;
 
-    console.log(`[IG Comments] Fetching for account ${accountId}, ig_id ${conta_id_instagram}`);
+    if (facebook_access_token && conta_id_facebook) {
+      // Fluxo Legado: Conectado via Facebook Login
+      mediaUrl = `https://graph.facebook.com/v21.0/${conta_id_instagram}/media?fields=id,caption,thumbnail_url,media_url,timestamp,media_type,comments.limit(10){id,text,username,timestamp,like_count,replies{id,text,username,timestamp}}&limit=10&access_token=${facebook_access_token}`;
+    } else {
+      // Fluxo Novo: Conectado via Instagram Business Login
+      mediaUrl = `https://graph.instagram.com/v21.0/${conta_id_instagram}/media?fields=id,caption,thumbnail_url,media_url,timestamp,media_type,comments.limit(10){id,text,username,timestamp,like_count,replies{id,text,username,timestamp}}&limit=10&access_token=${ig_access_token}`;
+    }
+
+    console.log(`[IG Comments] Fetching for account ${accountId}, URL: ${mediaUrl.split('access_token')[0]}`);
 
     const res = await fetch(mediaUrl);
     const data = await res.json();
@@ -110,7 +119,7 @@ export async function POST(request: Request) {
 
     const { data: account, error: accError } = await supabase
       .from('contas')
-      .select('ig_access_token')
+      .select('ig_access_token, facebook_access_token, conta_id_facebook')
       .eq('id_conta', accountId)
       .single();
 
@@ -119,9 +128,15 @@ export async function POST(request: Request) {
     }
 
     // Responder ao comentário
-    const replyUrl = `https://graph.facebook.com/v21.0/${commentId}/replies?access_token=${account.ig_access_token}`;
+    let replyUrl = '';
+    
+    if (account.facebook_access_token && account.conta_id_facebook) {
+      replyUrl = `https://graph.facebook.com/v21.0/${commentId}/replies?access_token=${account.facebook_access_token}`;
+    } else {
+      replyUrl = `https://graph.instagram.com/v21.0/${commentId}/replies?access_token=${account.ig_access_token}`;
+    }
 
-    console.log(`[IG Reply] Replying to comment ${commentId}`);
+    console.log(`[IG Reply] Replying to comment ${commentId}, API: ${replyUrl.includes('graph.facebook.com') ? 'Facebook' : 'Instagram'}`);
 
     const res = await fetch(replyUrl, {
       method: 'POST',

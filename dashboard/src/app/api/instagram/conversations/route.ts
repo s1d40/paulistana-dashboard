@@ -35,15 +35,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Credenciais do Instagram ausentes nesta conta' }, { status: 400 });
     }
 
-    // 2. Buscar conversas do Instagram via Page ID (mensagens do IG passam pela Page)
-    // A API de messaging do Instagram usa o Page token, não o IG user token
-    const pageId = conta_id_facebook;
-    const pageToken = facebook_access_token || ig_access_token;
+    // 2. Determinar API com base no token disponível
+    let conversationsUrl = '';
 
-    const platformParam = platform === 'instagram' ? '&platform=instagram' : '';
-    const conversationsUrl = `https://graph.facebook.com/v21.0/${pageId}/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}${platformParam}&access_token=${pageToken}&limit=25`;
+    if (facebook_access_token && conta_id_facebook) {
+      // Fluxo Legado: Conectado via Facebook Login (Usa Page ID)
+      const platformParam = platform === 'instagram' ? '&platform=instagram' : '';
+      conversationsUrl = `https://graph.facebook.com/v21.0/${conta_id_facebook}/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}${platformParam}&access_token=${facebook_access_token}&limit=25`;
+    } else {
+      // Fluxo Novo: Conectado via Instagram Business Login (Usa IG ID)
+      conversationsUrl = `https://graph.instagram.com/v21.0/${conta_id_instagram}/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}&access_token=${ig_access_token}&limit=25`;
+    }
     
-    console.log(`[IG Conversations] Fetching for account ${accountId}, page ${pageId}, platform ${platform}`);
+    console.log(`[IG Conversations] Fetching for account ${accountId}, URL: ${conversationsUrl.split('access_token')[0]}`);
 
     const res = await fetch(conversationsUrl);
     const data = await res.json();
