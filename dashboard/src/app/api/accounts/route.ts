@@ -17,14 +17,31 @@ export async function GET() {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Buscar o cliente vinculado ao usuário logado
+    const userEmail = session?.user?.email?.toLowerCase() || '';
+
+    // Membros da equipe principal veem TODAS as contas (workspace compartilhado)
+    const teamEmails = (process.env.AUTHORIZED_EMAILS || '').split(',').map(e => e.trim().toLowerCase());
+    const isTeamMember = userEmail && teamEmails.includes(userEmail);
+
+    if (isTeamMember) {
+      const { data, error } = await supabaseAdmin
+        .from('contas')
+        .select('id_conta, id_cliente, nicho, nome_conta, conta_id_instagram, conta_id_facebook, conta_id_threads, ig_access_token, facebook_access_token');
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+      return NextResponse.json({ accounts: data || [] });
+    }
+
+    // Usuários externos: buscar o cliente vinculado ao usuário logado
     let clienteFilter: string | null = null;
 
-    if (session?.user?.email) {
+    if (userEmail) {
       const { data: cliente } = await supabaseAdmin
         .from('clientes')
         .select('id_cliente')
-        .eq('email', session.user.email)
+        .eq('email', userEmail)
         .single();
 
       if (cliente) {
@@ -32,7 +49,7 @@ export async function GET() {
       }
     }
 
-    // Se não encontrou cliente, tenta pelo auth_user_id (userId do NextAuth)
+    // Fallback: tenta pelo auth_user_id
     if (!clienteFilter && session?.user?.id) {
       const { data: cliente } = await supabaseAdmin
         .from('clientes')
