@@ -87,21 +87,39 @@ export default function ContasConfigPage() {
                 </div>
 
                 <div className="mt-4">
-                  <div className="w-16 h-16 bg-zinc-800 rounded-2xl flex items-center justify-center border border-zinc-700 shadow-xl mb-6 group-hover:-translate-y-2 transition-transform duration-300">
-                     {type === 'Instagram' ? <Camera className="w-8 h-8 text-pink-500" /> : 
-                      type === 'Facebook' ? <Globe className="w-8 h-8 text-blue-500" /> :
-                      type === 'Youtube' ? <Video className="w-8 h-8 text-red-500" /> :
-                      <Globe className="w-8 h-8 text-indigo-500" />}
-                  </div>
+                  {/* Profile Picture or Icon */}
+                  {account.ig_profile_picture_url ? (
+                    <img 
+                      src={account.ig_profile_picture_url} 
+                      alt={account.nome_conta}
+                      className="w-16 h-16 rounded-2xl object-cover border border-zinc-700 shadow-xl mb-6 group-hover:-translate-y-2 transition-transform duration-300"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 bg-zinc-800 rounded-2xl flex items-center justify-center border border-zinc-700 shadow-xl mb-6 group-hover:-translate-y-2 transition-transform duration-300">
+                       {type === 'Instagram' ? <Camera className="w-8 h-8 text-pink-500" /> : 
+                        type === 'Facebook' ? <Globe className="w-8 h-8 text-blue-500" /> :
+                        type === 'Youtube' ? <Video className="w-8 h-8 text-red-500" /> :
+                        <Globe className="w-8 h-8 text-indigo-500" />}
+                    </div>
+                  )}
                   
                   <h3 className="font-black text-xl text-white tracking-tight leading-tight">{account.nome_conta}</h3>
+                  {account.ig_username && (
+                    <p className="text-sm text-pink-400 font-semibold mt-1">@{account.ig_username}</p>
+                  )}
                   <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-400 mt-2">{account.nicho || 'Geral'}</p>
                   
-                  <div className="mt-8 space-y-3">
+                  <div className="mt-6 space-y-3">
                      <div className="flex items-center justify-between text-xs p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/80">
                         <span className="text-zinc-500 font-medium">Integração Principal</span>
-                        <span className="text-zinc-300 font-bold">Meta Graph API</span>
+                        <span className="text-zinc-300 font-bold">{type === 'Instagram' ? 'Instagram API' : 'Meta Graph API'}</span>
                      </div>
+                     {account.ig_username && (
+                       <div className="flex items-center justify-between text-xs p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/80">
+                          <span className="text-zinc-500 font-medium">Username</span>
+                          <span className="text-zinc-300 font-bold">@{account.ig_username}</span>
+                       </div>
+                     )}
                      <div className="flex items-center justify-between text-xs p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/80">
                         <span className="text-zinc-500 font-medium">Permissões</span>
                         <span className="text-zinc-300 font-bold">Leitura / Escrita</span>

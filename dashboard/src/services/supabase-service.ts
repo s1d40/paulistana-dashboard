@@ -57,6 +57,8 @@ export interface Account {
   nome_conta: string;
   conta_id_instagram?: string;
   ig_access_token?: string;
+  ig_username?: string;
+  ig_profile_picture_url?: string;
   yt_credencial?: string;
   conta_id_facebook?: string;
   facebook_access_token?: string;
