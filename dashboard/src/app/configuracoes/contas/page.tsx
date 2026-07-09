@@ -3,13 +3,33 @@ export const dynamic = 'force-dynamic';
 
 import { useState, useEffect } from 'react';
 import { Account, fetchAccounts } from '@/services/supabase-service';
-import { Loader2, Camera, Globe, Video, Settings2, ShieldCheck, CheckCircle2, AlertCircle, ArrowLeft } from 'lucide-react';
+import { Loader2, Camera, Globe, Video, Settings2, ShieldCheck, CheckCircle2, AlertCircle, ArrowLeft, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export default function ContasConfigPage() {
   const router = useRouter();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const handleRemove = async (account: Account) => {
+    const confirmed = window.confirm(`Tem certeza que deseja desconectar a conta "${account.nome_conta}"? Isso removerá os tokens de acesso.`);
+    if (!confirmed) return;
+    
+    setRemovingId(account.id_conta);
+    try {
+      const res = await fetch(`/api/accounts/${account.id_conta}`, { method: 'DELETE' });
+      if (res.ok) {
+        setAccounts(prev => prev.filter(a => a.id_conta !== account.id_conta));
+      } else {
+        alert('Erro ao remover conta. Tente novamente.');
+      }
+    } catch (err) {
+      alert('Erro ao remover conta.');
+    } finally {
+      setRemovingId(null);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -127,13 +147,21 @@ export default function ContasConfigPage() {
                   </div>
                 </div>
 
-                <div className="pt-8">
+                <div className="pt-8 space-y-2">
                    {isConnectedMeta ? (
-                     <div className="flex flex-col gap-2">
+                     <>
                        <a href={`/api/auth/facebook?conta_id=${account.id_conta}`} className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm flex items-center justify-center border border-zinc-700">
                           Atualizar Token (Reconectar)
                        </a>
-                     </div>
+                       <button 
+                         onClick={() => handleRemove(account)}
+                         disabled={removingId === account.id_conta}
+                         className="w-full py-3 bg-transparent hover:bg-red-500/10 text-red-400/60 hover:text-red-400 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 border border-transparent hover:border-red-500/20 disabled:opacity-50"
+                       >
+                         <Trash2 className="w-3 h-3" />
+                         {removingId === account.id_conta ? 'Removendo...' : 'Desconectar'}
+                       </button>
+                     </>
                    ) : (
                      <a href={`/api/auth/facebook?conta_id=${account.id_conta}`} className="w-full py-4 bg-[#1877F2] hover:bg-[#1864D9] text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center group-hover:scale-[1.02]">
                         <Globe className="w-4 h-4 mr-2" /> Conectar Facebook
