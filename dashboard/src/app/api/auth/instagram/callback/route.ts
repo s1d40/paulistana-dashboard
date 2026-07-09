@@ -59,12 +59,77 @@ export async function GET(request: Request) {
     const finalToken = longTokenData.access_token || shortLivedToken;
 
     // 3. Buscar informações do perfil do Instagram
-    const profileFields = 'user_id,username,name,account_type,profile_picture_url';
-    const profileUrl = `https://graph.instagram.com/v21.0/me?fields=${profileFields}&access_token=${encodeURIComponent(finalToken)}`;
+    // Tentar múltiplas abordagens porque em modo dev a API pode rejeitar
+    let profile: any = {};
     
-    const profileRes = await fetch(profileUrl, { method: 'GET' });
-    const profile = await profileRes.json();
-    console.log('IG Profile Response:', JSON.stringify(profile));
+    // Tentativa 1: Instagram Graph API (funciona quando app está Live/aprovado)
+    try {
+      const profileFields = 'user_id,username,name,account_type,profile_picture_url';
+      const profileUrl = `https://graph.instagram.com/v21.0/me?fields=${profileFields}&access_token=${encodeURIComponent(finalToken)}`;
+      const profileRes = await fetch(profileUrl, { method: 'GET' });
+      const profileData = await profileRes.json();
+      console.log('IG Profile Response (attempt 1):', JSON.stringify(profileData));
+      if (!profileData.error) {
+        profile = profileData;
+      }
+    } catch (e) {
+      console.log('IG Profile attempt 1 failed:', e);
+    }
+
+    // Tentativa 2: Usar user_id diretamente
+    if (!profile.username && igUserId) {
+      try {
+        const profileUrl2 = `https://graph.instagram.com/${igUserId}?fields=username,name,account_type,profile_picture_url&access_token=${encodeURIComponent(finalToken)}`;
+        const profileRes2 = await fetch(profileUrl2, { method: 'GET' });
+        const profileData2 = await profileRes2.json();
+        console.log('IG Profile Response (attempt 2):', JSON.stringify(profileData2));
+        if (!profileData2.error) {
+          profile = profileData2;
+        }
+      } catch (e) {
+        console.log('IG Profile attempt 2 failed:', e);
+      }
+    }
+
+    // Tentativa 3: Buscar via Facebook Graph API (usando token existente do Facebook)
+    // Se o usuário já tem uma conta conectada via Facebook, podemos buscar o IG profile por lá
+    if (!profile.username) {
+      try {
+        const supabaseTmp = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        // Buscar token do Facebook se existir
+        const { data: fbContas } = await supabaseTmp
+          .from('contas')
+          .select('facebook_access_token, conta_id_instagram')
+          .not('facebook_access_token', 'is', null)
+          .limit(5);
+        
+        if (fbContas && fbContas.length > 0) {
+          for (const fbConta of fbContas) {
+            try {
+              const fbToken = fbConta.facebook_access_token;
+              const igId = fbConta.conta_id_instagram || igUserId;
+              const fbProfileUrl = `https://graph.facebook.com/v21.0/${igId}?fields=username,name,profile_picture_url&access_token=${encodeURIComponent(fbToken)}`;
+              const fbProfileRes = await fetch(fbProfileUrl);
+              const fbProfileData = await fbProfileRes.json();
+              console.log('IG Profile via FB (attempt 3):', JSON.stringify(fbProfileData));
+              if (fbProfileData.username) {
+                profile = fbProfileData;
+                break;
+              }
+            } catch (e) {
+              // continue to next
+            }
+          }
+        }
+      } catch (e) {
+        console.log('IG Profile attempt 3 (via FB) failed:', e);
+      }
+    }
+
+    console.log('Final IG Profile:', JSON.stringify(profile));
 
     // 4. Salvar no Supabase
     const supabaseAdmin = createClient(
