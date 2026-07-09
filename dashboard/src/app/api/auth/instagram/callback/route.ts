@@ -24,6 +24,7 @@ export async function GET(request: Request) {
 
   try {
     // 1. Trocar o código por um token de curta duração
+    // POST para https://api.instagram.com/oauth/access_token
     const tokenRes = await fetch('https://api.instagram.com/oauth/access_token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -37,6 +38,7 @@ export async function GET(request: Request) {
     });
 
     const tokenData = await tokenRes.json();
+    console.log('IG Token Response:', JSON.stringify(tokenData));
 
     if (!tokenData.access_token) {
       throw new Error(`Failed to get IG access token: ${JSON.stringify(tokenData)}`);
@@ -46,22 +48,27 @@ export async function GET(request: Request) {
     const igUserId = tokenData.user_id;
 
     // 2. Trocar por token de longa duração (60 dias)
-    const longTokenRes = await fetch(
-      `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${appSecret}&access_token=${shortLivedToken}`
-    );
+    // GET para https://graph.instagram.com/access_token (Instagram Business Login API)
+    const longTokenUrl = new URL('https://graph.instagram.com/access_token');
+    longTokenUrl.searchParams.set('grant_type', 'ig_exchange_token');
+    longTokenUrl.searchParams.set('client_secret', appSecret);
+    longTokenUrl.searchParams.set('access_token', shortLivedToken);
+
+    const longTokenRes = await fetch(longTokenUrl.toString());
     const longTokenData = await longTokenRes.json();
+    console.log('IG Long Token Response:', JSON.stringify(longTokenData));
 
-    if (!longTokenData.access_token) {
-      throw new Error(`Failed to get long-lived IG token: ${JSON.stringify(longTokenData)}`);
-    }
-
-    const longLivedToken = longTokenData.access_token;
+    // Se falhar a troca por long-lived, usa o short-lived mesmo
+    const finalToken = longTokenData.access_token || shortLivedToken;
 
     // 3. Buscar informações do perfil do Instagram
-    const profileRes = await fetch(
-      `https://graph.instagram.com/v21.0/me?fields=user_id,username,name,account_type,profile_picture_url&access_token=${longLivedToken}`
-    );
+    const profileUrl = new URL('https://graph.instagram.com/v21.0/me');
+    profileUrl.searchParams.set('fields', 'user_id,username,name,account_type,profile_picture_url');
+    profileUrl.searchParams.set('access_token', finalToken);
+
+    const profileRes = await fetch(profileUrl.toString());
     const profile = await profileRes.json();
+    console.log('IG Profile Response:', JSON.stringify(profile));
 
     // 4. Salvar no Supabase
     const supabaseAdmin = createClient(
@@ -91,13 +98,18 @@ export async function GET(request: Request) {
       if (cliente) idCliente = cliente.id_cliente;
     }
 
+    console.log('IG OAuth - Session email:', session?.user?.email, 'id_cliente:', idCliente);
+
+    const igAccountId = igUserId?.toString() || profile.user_id?.toString();
+    const accountName = profile.name || profile.username || 'Instagram Account';
+
     if (state && state !== 'onboarding') {
       // Atualizar conta existente
       await supabaseAdmin
         .from('contas')
         .update({
-          ig_access_token: longLivedToken,
-          conta_id_instagram: igUserId?.toString() || profile.user_id?.toString(),
+          ig_access_token: finalToken,
+          conta_id_instagram: igAccountId,
         })
         .eq('id_conta', state);
     } else {
@@ -105,7 +117,7 @@ export async function GET(request: Request) {
       const { data: existing } = await supabaseAdmin
         .from('contas')
         .select('id_conta')
-        .eq('conta_id_instagram', igUserId?.toString() || profile.user_id?.toString())
+        .eq('conta_id_instagram', igAccountId)
         .single();
 
       if (existing) {
@@ -113,22 +125,28 @@ export async function GET(request: Request) {
         await supabaseAdmin
           .from('contas')
           .update({
-            ig_access_token: longLivedToken,
-            nome_conta: profile.name || profile.username,
+            ig_access_token: finalToken,
+            nome_conta: accountName,
             id_cliente: idCliente,
           })
           .eq('id_conta', existing.id_conta);
       } else {
         // Criar nova conta
-        await supabaseAdmin
+        const { error: insertError } = await supabaseAdmin
           .from('contas')
           .insert({
-            nome_conta: profile.name || profile.username || 'Instagram Account',
+            nome_conta: accountName,
             nicho: 'Geral',
-            conta_id_instagram: igUserId?.toString() || profile.user_id?.toString(),
-            ig_access_token: longLivedToken,
+            conta_id_instagram: igAccountId,
+            ig_access_token: finalToken,
             id_cliente: idCliente,
           });
+        
+        if (insertError) {
+          console.error('Error inserting new account:', insertError);
+        } else {
+          console.log('✅ New Instagram account created:', accountName, 'for client:', idCliente);
+        }
       }
     }
 
