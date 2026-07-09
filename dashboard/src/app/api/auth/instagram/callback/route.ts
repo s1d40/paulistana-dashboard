@@ -9,8 +9,8 @@ export async function GET(request: Request) {
   const error = searchParams.get('error');
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const appId = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID!;
-  const appSecret = process.env.FACEBOOK_APP_SECRET!;
+  const appId = process.env.INSTAGRAM_APP_ID || process.env.NEXT_PUBLIC_FACEBOOK_APP_ID!;
+  const appSecret = process.env.INSTAGRAM_APP_SECRET || process.env.FACEBOOK_APP_SECRET!;
   const redirectUri = `${appUrl}/api/auth/instagram/callback`;
 
   if (error) {
