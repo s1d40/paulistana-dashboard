@@ -127,6 +127,57 @@ export default function ContasConfigPage() {
           })}
         </section>
 
+        {/* Estado Vazio: quando não há contas vinculadas */}
+        {accounts.length === 0 && (
+          <section className="flex flex-col items-center justify-center py-20 space-y-8">
+            <div className="w-24 h-24 bg-zinc-900 rounded-[2rem] flex items-center justify-center border border-zinc-800 shadow-2xl">
+              <Camera className="w-12 h-12 text-pink-500/50" />
+            </div>
+            <div className="text-center space-y-3">
+              <h2 className="text-2xl font-black uppercase tracking-tight text-white">Nenhuma conta conectada</h2>
+              <p className="text-zinc-500 text-sm max-w-md">
+                Conecte sua conta do Facebook ou Instagram para vincular automaticamente suas páginas e contas ao painel.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <a 
+                href="/api/auth/facebook" 
+                className="px-8 py-4 bg-[#1877F2] hover:bg-[#1864D9] text-white text-sm font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-blue-500/20 flex items-center gap-3 hover:scale-105 active:scale-95"
+              >
+                <Globe className="w-5 h-5" />
+                Conectar com Facebook
+              </a>
+              <a 
+                href="/api/auth/instagram" 
+                className="px-8 py-4 bg-gradient-to-r from-[#833AB4] via-[#FD1D1D] to-[#F77737] hover:opacity-90 text-white text-sm font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-pink-500/20 flex items-center gap-3 hover:scale-105 active:scale-95"
+              >
+                <Camera className="w-5 h-5" />
+                Conectar com Instagram
+              </a>
+            </div>
+          </section>
+        )}
+
+        {/* Botão de adicionar nova conta (quando já tem contas) */}
+        {accounts.length > 0 && (
+          <section className="flex flex-wrap gap-4 justify-center pt-4">
+            <a 
+              href="/api/auth/facebook" 
+              className="px-6 py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-black uppercase tracking-widest rounded-xl transition-all border border-zinc-800 flex items-center gap-2"
+            >
+              <Globe className="w-4 h-4 text-blue-400" />
+              + Adicionar via Facebook
+            </a>
+            <a 
+              href="/api/auth/instagram" 
+              className="px-6 py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-black uppercase tracking-widest rounded-xl transition-all border border-zinc-800 flex items-center gap-2"
+            >
+              <Camera className="w-4 h-4 text-pink-400" />
+              + Adicionar via Instagram
+            </a>
+          </section>
+        )}
+
       </div>
     </div>
   );
