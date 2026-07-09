@@ -18,7 +18,8 @@ export async function GET(request: Request) {
     'instagram_business_manage_insights',
   ].join(',');
 
-  const igLoginUrl = `https://www.instagram.com/oauth/authorize?enable_fb_login=0&force_authentication=1&client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scopes}&state=${state}`;
+  // URL idêntica ao formato gerado pelo Meta Developer Portal
+  const igLoginUrl = `https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&state=${state}`;
 
   return NextResponse.redirect(igLoginUrl);
 }
