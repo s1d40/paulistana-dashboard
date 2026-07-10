@@ -11,12 +11,15 @@ import {
   RefreshCw,
   Heart,
   MessageCircle,
-  ThumbsUp
+  ThumbsUp,
+  Share2,
+  TrendingUp,
+  BarChart3
 } from 'lucide-react';
 import AccountSelector from '@/components/account-selector';
 import { Account, Client } from '@/services/supabase-service';
 import clsx from 'clsx';
-import { InstagramIcon, YoutubeIcon } from '@/components/brand-icons';
+import { InstagramIcon, YoutubeIcon, FacebookIcon } from '@/components/brand-icons';
 
 export default function EngagementPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -29,6 +32,10 @@ export default function EngagementPage() {
   const [igData, setIgData] = useState<any>(null);
   const [igError, setIgError] = useState('');
 
+  const [fbLoading, setFbLoading] = useState(false);
+  const [fbData, setFbData] = useState<any>(null);
+  const [fbError, setFbError] = useState('');
+
   const handleAccountSelect = (account: Account) => {
     setSelectedAccountId(account.id_conta);
   };
@@ -38,6 +45,17 @@ export default function EngagementPage() {
 
     setIgLoading(true);
     setYtLoading(true);
+    setFbLoading(true);
+
+    // Fetch Facebook Page Insights
+    fetch(`/api/social/facebook?accountId=${selectedAccountId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) setFbError(data.error);
+        else { setFbData(data); setFbError(''); }
+      })
+      .catch(err => setFbError('Erro ao conectar com API do Facebook'))
+      .finally(() => setFbLoading(false));
 
     // Fetch YouTube
     fetch(`/api/social/youtube?accountId=${selectedAccountId}`)
@@ -81,7 +99,7 @@ export default function EngagementPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
         
         {/* INSTAGRAM SECTION */}
         <div className="space-y-6">
@@ -149,6 +167,104 @@ export default function EngagementPage() {
                         </div>
                       </div>
                     </a>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* FACEBOOK SECTION */}
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-black text-white flex items-center gap-3">
+              <div className="p-2 bg-blue-600/20 rounded-xl">
+                <FacebookIcon className="w-5 h-5 text-blue-500" />
+              </div>
+              Facebook Page Insights
+            </h2>
+          </div>
+
+          {fbLoading ? (
+            <div className="h-[400px] bg-zinc-900/50 border border-white/5 rounded-3xl p-12 flex flex-col items-center justify-center text-zinc-500 backdrop-blur-sm">
+              <RefreshCw className="w-10 h-10 animate-spin mb-6 text-blue-500" />
+              <p className="font-medium text-lg">Carregando insights da Page...</p>
+            </div>
+          ) : !fbData || fbError ? (
+            <div className="h-[400px] bg-zinc-900/30 border border-white/5 rounded-3xl p-8 flex flex-col items-center justify-center text-center backdrop-blur-sm">
+              <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center mb-6">
+                <FacebookIcon className="w-8 h-8 text-blue-500" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">Facebook Page não vinculada</h3>
+              <p className="text-zinc-400 max-w-sm">{fbError || 'Conecte uma Facebook Page via Facebook Login para ver insights.'}</p>
+            </div>
+          ) : fbData && (
+            <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-700">
+              {/* Page Info Header */}
+              <div className="bg-gradient-to-r from-blue-600/10 to-blue-500/5 border border-blue-500/10 rounded-3xl p-6 flex items-center gap-5">
+                {fbData.page.picture && (
+                  <img src={fbData.page.picture} alt={fbData.page.name} className="w-16 h-16 rounded-2xl shadow-lg" />
+                )}
+                <div>
+                  <h3 className="text-xl font-black text-white">{fbData.page.name}</h3>
+                  <p className="text-sm text-blue-400 font-medium">{fbData.page.category}</p>
+                </div>
+              </div>
+
+              {/* Metrics Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-400"/> Seguidores
+                  </div>
+                  <div className="text-4xl font-black text-white tracking-tight">{fbData.page.followers.toLocaleString('pt-BR')}</div>
+                </div>
+                <div className="bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Eye className="w-4 h-4 text-blue-400"/> Impressões (28d)
+                  </div>
+                  <div className="text-4xl font-black text-white tracking-tight">{fbData.insights.impressions.toLocaleString('pt-BR')}</div>
+                </div>
+                <div className="bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-blue-400"/> Engajamento (28d)
+                  </div>
+                  <div className="text-4xl font-black text-white tracking-tight">{fbData.insights.postEngagements.toLocaleString('pt-BR')}</div>
+                </div>
+                <div className="bg-white/5 hover:bg-white/10 transition-all duration-300 border border-white/5 rounded-3xl p-6 relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div className="text-zinc-400 text-xs font-bold uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4 text-blue-400"/> Usuários Engajados (28d)
+                  </div>
+                  <div className="text-4xl font-black text-white tracking-tight">{fbData.insights.engagedUsers.toLocaleString('pt-BR')}</div>
+                </div>
+              </div>
+
+              {/* Recent Posts */}
+              <div className="bg-white/5 border border-white/5 rounded-3xl overflow-hidden backdrop-blur-sm">
+                <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02]">
+                  <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest">Publicações Recentes da Página</h3>
+                </div>
+                <div className="divide-y divide-white/5 max-h-[500px] overflow-y-auto custom-scrollbar">
+                  {fbData.recentPosts.map((post: any) => (
+                    <div key={post.id} className="flex items-center gap-5 p-5 hover:bg-white/5 transition-colors group">
+                      {post.picture && (
+                        <div className="relative w-20 h-20 rounded-2xl overflow-hidden bg-zinc-800 shrink-0 shadow-lg group-hover:scale-105 transition-transform duration-500">
+                          <img src={post.picture} alt="" className="w-full h-full object-cover" />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-zinc-300 line-clamp-2 leading-relaxed mb-3 group-hover:text-white transition-colors">{post.message}</p>
+                        <div className="flex items-center gap-4 text-xs font-bold">
+                          <span className="flex items-center gap-1.5 text-blue-400/80"><ThumbsUp className="w-3.5 h-3.5" /> {post.reactions}</span>
+                          <span className="flex items-center gap-1.5 text-green-400/80"><MessageCircle className="w-3.5 h-3.5" /> {post.comments}</span>
+                          <span className="flex items-center gap-1.5 text-purple-400/80"><Share2 className="w-3.5 h-3.5" /> {post.shares}</span>
+                        </div>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
