@@ -37,19 +37,22 @@ export async function GET(request: Request) {
 
     // 2. Determinar API com base no token disponível
     let conversationsUrl = '';
+    let fetchHeaders: Record<string, string> = {};
 
     if (facebook_access_token && conta_id_facebook) {
       // Fluxo Legado: Conectado via Facebook Login (Usa Page ID)
       const platformParam = platform === 'instagram' ? '&platform=instagram' : '';
-      conversationsUrl = `https://graph.facebook.com/v21.0/${conta_id_facebook}/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}${platformParam}&access_token=${facebook_access_token}&limit=25`;
+      conversationsUrl = `https://graph.facebook.com/v21.0/${conta_id_facebook}/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}${platformParam}&access_token=${encodeURIComponent(facebook_access_token)}&limit=25`;
     } else {
-      // Fluxo Novo: Conectado via Instagram Business Login (Usa IG ID)
-      conversationsUrl = `https://graph.instagram.com/v21.0/me/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}&access_token=${ig_access_token}&limit=25`;
+      // Fluxo Novo: Conectado via Instagram Business Login
+      // Usa Authorization header em vez de query param para evitar problemas com caracteres especiais
+      conversationsUrl = `https://graph.instagram.com/v21.0/me/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}&limit=25`;
+      fetchHeaders = { 'Authorization': `Bearer ${ig_access_token}` };
     }
     
     console.log(`[IG Conversations] Fetching for account ${accountId}, URL: ${conversationsUrl.split('access_token')[0]}`);
 
-    const res = await fetch(conversationsUrl);
+    const res = await fetch(conversationsUrl, { headers: fetchHeaders });
     const data = await res.json();
 
     if (data.error) {

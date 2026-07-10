@@ -35,19 +35,21 @@ export async function GET(request: Request) {
 
     // 2. Determinar API com base no token disponível
     let mediaUrl = '';
+    let fetchHeaders: Record<string, string> = {};
     const { facebook_access_token, conta_id_facebook } = account;
 
     if (facebook_access_token && conta_id_facebook) {
       // Fluxo Legado: Conectado via Facebook Login
-      mediaUrl = `https://graph.facebook.com/v21.0/${conta_id_instagram}/media?fields=id,caption,thumbnail_url,media_url,timestamp,media_type,comments.limit(10){id,text,username,timestamp,like_count,replies{id,text,username,timestamp}}&limit=10&access_token=${facebook_access_token}`;
+      mediaUrl = `https://graph.facebook.com/v21.0/${conta_id_instagram}/media?fields=id,caption,thumbnail_url,media_url,timestamp,media_type,comments.limit(10){id,text,username,timestamp,like_count,replies{id,text,username,timestamp}}&limit=10&access_token=${encodeURIComponent(facebook_access_token)}`;
     } else {
       // Fluxo Novo: Conectado via Instagram Business Login
-      mediaUrl = `https://graph.instagram.com/v21.0/me/media?fields=id,caption,thumbnail_url,media_url,timestamp,media_type,comments.limit(10){id,text,username,timestamp,like_count,replies{id,text,username,timestamp}}&limit=10&access_token=${ig_access_token}`;
+      mediaUrl = `https://graph.instagram.com/v21.0/me/media?fields=id,caption,thumbnail_url,media_url,timestamp,media_type,comments.limit(10){id,text,username,timestamp,like_count,replies{id,text,username,timestamp}}&limit=10`;
+      fetchHeaders = { 'Authorization': `Bearer ${ig_access_token}` };
     }
 
     console.log(`[IG Comments] Fetching for account ${accountId}, URL: ${mediaUrl.split('access_token')[0]}`);
 
-    const res = await fetch(mediaUrl);
+    const res = await fetch(mediaUrl, { headers: fetchHeaders });
     const data = await res.json();
 
     if (data.error) {
