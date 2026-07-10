@@ -36,13 +36,12 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'id_post ausente.' }, { status: 400 });
       }
 
-      try {
+       try {
         const postToUpsert: Record<string, unknown> = {
           id_post,
           tema_post,
           titulo_post,
           roteiro_gerado,
-          id_conta,
           captions,
           hashtags,
           status: status || 'Aguardando Revisão',
@@ -50,6 +49,11 @@ export async function POST(request: Request) {
           audio_status: 'Pendente',
           video_status: 'Pendente'
         };
+
+        // Só vincular id_conta se existir (evita FK violation)
+        if (id_conta) {
+          postToUpsert.id_conta = id_conta;
+        }
 
         if (production_list_id) {
           postToUpsert.production_list_id = production_list_id;

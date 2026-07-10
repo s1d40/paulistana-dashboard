@@ -71,6 +71,7 @@ function ChatContent() {
 
   // --- POST METADATA ---
   const [postTitle, setPostTitle] = useState<string>('');
+  const [defaultAccountId, setDefaultAccountId] = useState<string | null>(null);
 
   // --- SCRIPTWRITER (PRODUCTION) DNA ---
   const [localSessions, setLocalSessions] = useState<SystemMessageSession[]>([]);
@@ -203,6 +204,21 @@ function ChatContent() {
     };
     setup();
   }, [track, sessionId, createDraftPreset]);
+
+  // Buscar primeira conta disponível para vincular posts novos
+  useEffect(() => {
+    fetch('/api/accounts')
+      .then(r => r.json())
+      .then(data => {
+        const accs = data.accounts || [];
+        if (accs.length > 0) {
+          setDefaultAccountId(accs[0].id_conta);
+          // Set window var as fallback
+          (window as Window & { _current_id_conta?: string })._current_id_conta = accs[0].id_conta;
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const editingRef = useRef<string | null>(null);
   const isSettingsModified = useRef(false); // Track if user touched settings locally
@@ -584,7 +600,7 @@ function ChatContent() {
           titulo_post: postTitle || 'Sem Título',
           roteiro_gerado: JSON.stringify({ status: 'Gerando...' }),
           status: 'Processando Roteiro',
-          id_conta: (window as Window & { _current_id_conta?: string })._current_id_conta || 'b3f9c2d1-7e84-4a56-9d2b-1f8e3c6a4b90' 
+          id_conta: (window as Window & { _current_id_conta?: string })._current_id_conta || defaultAccountId || null
         }),
       });
 
