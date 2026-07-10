@@ -65,7 +65,7 @@ export async function GET(request: Request) {
     const conversations = (data.data || []).map((conv: any) => {
       const participants = conv.participants?.data || [];
       // O "outro" participante (não somos nós)
-      const otherParticipant = participants.find((p: any) => p.id !== pageId && p.id !== conta_id_instagram) || participants[0];
+      const otherParticipant = participants.find((p: any) => p.id !== conta_id_facebook && p.id !== conta_id_instagram) || participants[0];
       const lastMessage = conv.messages?.data?.[0];
       
       return {
