@@ -44,7 +44,7 @@ export async function GET(request: Request) {
       conversationsUrl = `https://graph.facebook.com/v21.0/${conta_id_facebook}/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}${platformParam}&access_token=${facebook_access_token}&limit=25`;
     } else {
       // Fluxo Novo: Conectado via Instagram Business Login (Usa IG ID)
-      conversationsUrl = `https://graph.instagram.com/v21.0/${conta_id_instagram}/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}&access_token=${ig_access_token}&limit=25`;
+      conversationsUrl = `https://graph.instagram.com/v21.0/me/conversations?fields=participants,updated_time,messages.limit(1){message,from,created_time}&access_token=${ig_access_token}&limit=25`;
     }
     
     console.log(`[IG Conversations] Fetching for account ${accountId}, URL: ${conversationsUrl.split('access_token')[0]}`);
