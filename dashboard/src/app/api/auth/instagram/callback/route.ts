@@ -220,6 +220,34 @@ export async function GET(request: Request) {
       }
     }
 
+    // 5. IMPORTANTE: Assinar webhooks para esta conta Instagram
+    // Sem esta chamada, a Meta NÃO envia eventos (DMs, comentários) para contas
+    // conectadas via Instagram Business Login
+    try {
+      const subscribeUrl = `https://graph.instagram.com/v21.0/me/subscribed_apps`;
+      const subscribeRes = await fetch(subscribeUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': `Bearer ${finalToken}`
+        },
+        body: new URLSearchParams({
+          subscribed_fields: 'messages,comments'
+        })
+      });
+      const subscribeData = await subscribeRes.json();
+      console.log('IG Webhook Subscription:', JSON.stringify(subscribeData));
+      
+      if (subscribeData.success) {
+        console.log('✅ Webhook ativado para conta Instagram:', accountName);
+      } else {
+        console.warn('⚠️ Falha ao assinar webhook:', subscribeData.error?.message || 'Unknown error');
+      }
+    } catch (subErr: any) {
+      console.error('Erro ao assinar webhook:', subErr.message);
+      // Não bloqueia o fluxo - a conta foi salva com sucesso
+    }
+
     return NextResponse.redirect(`${appUrl}/configuracoes/contas?auth_success=instagram`);
   } catch (err: any) {
     console.error('Instagram OAuth Flow Error:', err.message);
