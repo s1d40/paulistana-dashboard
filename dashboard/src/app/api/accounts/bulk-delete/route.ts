@@ -50,12 +50,12 @@ export async function DELETE() {
     return NextResponse.json({ message: 'Nenhuma conta encontrada', deleted: 0 });
   }
 
-  // 2. Deletar posts vinculados (respeitar FK constraint)
+  // 2. Desvincular posts das contas (NÃO deletar! Preservar todo o conteúdo)
   for (const conta of contas) {
-    await supabaseAdmin.from('posts').delete().eq('id_conta', conta.id_conta);
+    await supabaseAdmin.from('posts').update({ id_conta: null }).eq('id_conta', conta.id_conta);
   }
 
-  // 3. Deletar todas as contas
+  // 3. Deletar apenas as contas (tokens/credenciais)
   const { error } = await supabaseAdmin
     .from('contas')
     .delete()
@@ -66,6 +66,6 @@ export async function DELETE() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  console.log(`✅ Bulk delete: ${contas.length} contas removidas para cliente ${idCliente}`);
+  console.log(`✅ Bulk delete: ${contas.length} contas removidas (posts preservados) para cliente ${idCliente}`);
   return NextResponse.json({ success: true, deleted: contas.length });
 }
