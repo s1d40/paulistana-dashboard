@@ -161,7 +161,10 @@ export async function GET(request: Request) {
 
     console.log('IG OAuth - Session email:', session?.user?.email, 'id_cliente:', idCliente);
 
-    const igAccountId = igUserId?.toString() || profile.user_id?.toString();
+    // IMPORTANTE: profile.user_id é o IGID clássico (17841...) que a Meta usa nos webhooks.
+    // igUserId do token exchange é o IGSID (scoped, 27652...) que NÃO bate com webhooks.
+    // Sempre priorizar profile.user_id para que o lookup no banco funcione com webhooks.
+    const igAccountId = profile.user_id?.toString() || igUserId?.toString();
     const accountName = profile.name || profile.username || 'Instagram Account';
     const igUsername = profile.username || null;
     const igProfilePic = profile.profile_picture_url || null;
