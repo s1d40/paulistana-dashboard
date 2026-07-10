@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import {
   MessageCircle, Search, Send, Heart, EyeOff,
   CheckCircle, AlertCircle, Loader2,
-  Clock, ThumbsUp, Reply,
+  Clock, ThumbsUp, Reply, Trash2,
   Image as ImageIcon, RefreshCw, ChevronDown
 } from 'lucide-react';
 import { InstagramIcon } from '@/components/brand-icons';
@@ -80,6 +80,8 @@ export default function CommentsPage() {
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [likingId, setLikingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Load accounts
   useEffect(() => {
@@ -179,6 +181,62 @@ export default function CommentsPage() {
 
   const handleResolve = (commentId: string) => {
     setComments(prev => prev.map(c => c.id === commentId ? { ...c, isResolved: !c.isResolved } : c));
+  };
+
+  const handleLike = async (commentId: string, isCurrentlyLiked: boolean) => {
+    setLikingId(commentId);
+    try {
+      const res = await fetch('/api/instagram/comments/engage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: selectedAccountId,
+          commentId,
+          action: isCurrentlyLiked ? 'unlike' : 'like'
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setComments(prev => prev.map(c => c.id === commentId ? {
+          ...c,
+          isLiked: !isCurrentlyLiked,
+          likes: isCurrentlyLiked ? Math.max(0, c.likes - 1) : c.likes + 1
+        } : c));
+      } else {
+        setError(data.error || 'Erro ao curtir');
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLikingId(null);
+    }
+  };
+
+  const handleDelete = async (commentId: string) => {
+    const confirmed = window.confirm('Tem certeza que deseja EXCLUIR este comentário? Esta ação não pode ser desfeita.');
+    if (!confirmed) return;
+    setDeletingId(commentId);
+    try {
+      const res = await fetch('/api/instagram/comments/engage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: selectedAccountId,
+          commentId,
+          action: 'delete'
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setComments(prev => prev.filter(c => c.id !== commentId));
+      } else {
+        setError(data.error || 'Erro ao excluir');
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const filteredComments = comments.filter(c => {
@@ -383,10 +441,24 @@ export default function CommentsPage() {
                       )}
 
                       {/* Actions */}
-                      <div className="flex items-center gap-2 mt-3">
-                        <span className="flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold text-zinc-400">
-                          <Heart className="w-3 h-3" /> {comment.likes}
-                        </span>
+                      <div className="flex items-center gap-2 mt-3 flex-wrap">
+                        <button
+                          onClick={() => handleLike(comment.id, !!comment.isLiked)}
+                          disabled={likingId === comment.id}
+                          className={clsx(
+                            "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold transition-all",
+                            comment.isLiked
+                              ? "bg-pink-50 dark:bg-pink-900/20 text-pink-500"
+                              : "hover:bg-pink-50 dark:hover:bg-pink-900/20 text-zinc-400 hover:text-pink-500"
+                          )}
+                        >
+                          {likingId === comment.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Heart className={clsx("w-3 h-3", comment.isLiked && "fill-current")} />
+                          )}
+                          {comment.likes} {comment.isLiked ? 'Curtido' : 'Curtir'}
+                        </button>
                         <button
                           onClick={() => { setReplyingTo(replyingTo === comment.id ? null : comment.id); setReplyText(''); }}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
@@ -406,9 +478,21 @@ export default function CommentsPage() {
                         </button>
                         <button
                           onClick={() => handleHide(comment.id)}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold text-zinc-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 transition-all"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-600 transition-all"
                         >
                           <EyeOff className="w-3 h-3" /> Ocultar
+                        </button>
+                        <button
+                          onClick={() => handleDelete(comment.id)}
+                          disabled={deletingId === comment.id}
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold text-zinc-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 transition-all"
+                        >
+                          {deletingId === comment.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
+                          Excluir
                         </button>
                       </div>
 
