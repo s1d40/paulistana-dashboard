@@ -11,6 +11,31 @@ export default function ContasConfigPage() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [removingAll, setRemovingAll] = useState(false);
+
+  const handleRemoveAll = async () => {
+    if (accounts.length === 0) return;
+    const confirmed = window.confirm(
+      `⚠️ ATENÇÃO: Tem certeza que deseja excluir TODAS as ${accounts.length} contas?\n\nIsso também removerá todos os posts vinculados. Esta ação não pode ser desfeita.`
+    );
+    if (!confirmed) return;
+    
+    setRemovingAll(true);
+    try {
+      const res = await fetch('/api/accounts/bulk-delete', { method: 'DELETE' });
+      const data = await res.json();
+      if (res.ok) {
+        setAccounts([]);
+        alert(`✅ ${data.deleted} contas excluídas com sucesso!`);
+      } else {
+        alert('Erro: ' + (data.error || 'Falha ao excluir contas'));
+      }
+    } catch (err) {
+      alert('Erro de conexão ao excluir contas.');
+    } finally {
+      setRemovingAll(false);
+    }
+  };
 
   const handleRemove = async (account: Account) => {
     const confirmed = window.confirm(`Tem certeza que deseja desconectar a conta "${account.nome_conta}"? Isso removerá os tokens de acesso.`);
@@ -79,6 +104,22 @@ export default function ContasConfigPage() {
               </p>
             </div>
           </div>
+
+          {/* Botão Excluir Todas */}
+          {accounts.length > 0 && (
+            <button
+              onClick={handleRemoveAll}
+              disabled={removingAll}
+              className="relative z-10 flex items-center gap-2 px-5 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 hover:border-red-500/50 text-red-400 hover:text-red-300 rounded-2xl transition-all font-bold text-sm shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {removingAll ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              {removingAll ? 'Excluindo...' : `Excluir Todas (${accounts.length})`}
+            </button>
+          )}
         </header>
 
         {/* Accounts Grid */}
