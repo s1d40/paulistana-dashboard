@@ -28,13 +28,24 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Conta não encontrada' }, { status: 404 });
     }
 
-    const pageToken = account.facebook_access_token || account.ig_access_token;
-    const pageId = account.conta_id_facebook;
+    const { ig_access_token, conta_id_instagram, conta_id_facebook, facebook_access_token } = account;
 
-    // 2. Buscar mensagens da conversa
-    const messagesUrl = `https://graph.facebook.com/v21.0/${conversationId}?fields=messages{id,message,from,to,created_time,attachments}&access_token=${pageToken}&limit=50`;
+    // 2. Buscar mensagens da conversa (dual-path: Facebook Page vs Instagram Direct)
+    let messagesUrl = '';
+    let fetchHeaders: Record<string, string> = {};
 
-    const res = await fetch(messagesUrl);
+    if (facebook_access_token && conta_id_facebook) {
+      // Fluxo Facebook Page: usa graph.facebook.com com access_token na query
+      messagesUrl = `https://graph.facebook.com/v21.0/${conversationId}?fields=messages{id,message,from,to,created_time,attachments}&access_token=${encodeURIComponent(facebook_access_token)}&limit=50`;
+    } else if (ig_access_token) {
+      // Fluxo Instagram Business Login: usa graph.instagram.com com Bearer header
+      messagesUrl = `https://graph.instagram.com/v21.0/${conversationId}?fields=messages{id,message,from,to,created_time,attachments}&limit=50`;
+      fetchHeaders = { 'Authorization': `Bearer ${ig_access_token}` };
+    } else {
+      return NextResponse.json({ error: 'Nenhum token disponível para esta conta' }, { status: 400 });
+    }
+
+    const res = await fetch(messagesUrl, { headers: fetchHeaders });
     const data = await res.json();
 
     if (data.error) {
@@ -48,7 +59,7 @@ export async function GET(request: Request) {
     // 3. Formatar mensagens
     const rawMessages = data.messages?.data || [];
     const messages = rawMessages.map((msg: any) => {
-      const isFromMe = msg.from?.id === pageId || msg.from?.id === account.conta_id_instagram;
+      const isFromMe = msg.from?.id === conta_id_facebook || msg.from?.id === conta_id_instagram;
       
       return {
         id: msg.id,
@@ -103,17 +114,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Conta não encontrada' }, { status: 404 });
     }
 
-    const pageToken = account.facebook_access_token || account.ig_access_token;
-    const pageId = account.conta_id_facebook;
+    const { ig_access_token, conta_id_instagram, conta_id_facebook, facebook_access_token } = account;
 
-    // 2. Enviar mensagem via Page Messaging API
-    const sendUrl = `https://graph.facebook.com/v21.0/${pageId}/messages?access_token=${pageToken}`;
+    // 2. Enviar mensagem (dual-path: Facebook Page vs Instagram Direct)
+    let sendUrl = '';
+    let fetchHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
 
-    console.log(`[IG Send] Sending message to ${recipientId} via page ${pageId}`);
+    if (facebook_access_token && conta_id_facebook) {
+      // Fluxo Facebook Page
+      sendUrl = `https://graph.facebook.com/v21.0/${conta_id_facebook}/messages?access_token=${encodeURIComponent(facebook_access_token)}`;
+      console.log(`[IG Send] Sending via Facebook Page ${conta_id_facebook}`);
+    } else if (ig_access_token && conta_id_instagram) {
+      // Fluxo Instagram Business Login
+      sendUrl = `https://graph.instagram.com/v21.0/me/messages`;
+      fetchHeaders['Authorization'] = `Bearer ${ig_access_token}`;
+      console.log(`[IG Send] Sending via Instagram Direct ${conta_id_instagram}`);
+    } else {
+      return NextResponse.json({ error: 'Nenhum token disponível para envio' }, { status: 400 });
+    }
 
     const res = await fetch(sendUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: fetchHeaders,
       body: JSON.stringify({
         recipient: { id: recipientId },
         message: { text },
