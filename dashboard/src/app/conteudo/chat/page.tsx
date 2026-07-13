@@ -636,35 +636,44 @@ function ChatContent() {
 
       if (!response.ok) throw new Error('Erro na comunicação com n8n para gerar o roteiro');
 
-      // 5. Salva o roteiro DIRETAMENTE no Supabase (sem depender do n8n)
-      const resData = await response.json();
-      let scriptData = resData.script;
-
-      // Garante que formato_video e com_legendas estejam no JSON do roteiro
-      if (scriptData && typeof scriptData === 'object') {
-        scriptData.formato_video = formatoVideo;
-        scriptData.com_legendas = comLegendas;
+      // 5. O n8n salva o roteiro diretamente no banco (Postgres UPDATE).
+      //    Aguardamos o roteiro aparecer no DB via polling curto.
+      let roteiroPronto: any = null;
+      for (let i = 0; i < 40; i++) { // Máximo de ~120 segundos
+        await new Promise(r => setTimeout(r, 3000));
+        const { data } = await supabase.from('posts').select('roteiro_gerado').eq('id_post', finalId).maybeSingle();
+        
+        if (data && data.roteiro_gerado) {
+          const rgStr = typeof data.roteiro_gerado === 'string' ? data.roteiro_gerado : JSON.stringify(data.roteiro_gerado);
+          if (!rgStr.includes('"status":"Gerando..."') && (rgStr.includes('cenas') || rgStr.includes('slides') || rgStr.includes('secoes'))) {
+             roteiroPronto = data.roteiro_gerado;
+             break;
+          }
+        }
       }
 
-      const roteiroStr = typeof scriptData === 'string' ? scriptData : JSON.stringify(scriptData);
+      if (!roteiroPronto) {
+        throw new Error('Tempo limite excedido aguardando o roteiro. Ele pode estar sendo gerado em segundo plano — verifique a biblioteca de conteúdo.');
+      }
+
+      // 6. Garante que formato_video e com_legendas estejam no roteiro salvo
+      let roteiroObj = typeof roteiroPronto === 'string' ? JSON.parse(roteiroPronto) : roteiroPronto;
+      let needsUpdate = false;
       
-      // Valida que o roteiro tem conteúdo real
-      if (!roteiroStr || roteiroStr.length < 100 || roteiroStr.includes('"status":"Gerando..."')) {
-        throw new Error('O roteiro retornado está vazio ou incompleto. Tente novamente.');
+      if (!roteiroObj.formato_video) {
+        roteiroObj.formato_video = formatoVideo;
+        needsUpdate = true;
+      }
+      if (roteiroObj.com_legendas === undefined) {
+        roteiroObj.com_legendas = comLegendas;
+        needsUpdate = true;
       }
 
-      // Salva direto no Supabase
-      const { error: saveError } = await supabase
-        .from('posts')
-        .update({ 
-          roteiro_gerado: roteiroStr,
-          status: 'Aguardando Revisão'
-        })
-        .eq('id_post', finalId);
-
-      if (saveError) {
-        console.error('Erro ao salvar roteiro:', saveError);
-        throw new Error('Erro ao salvar roteiro no banco de dados.');
+      if (needsUpdate) {
+        await supabase
+          .from('posts')
+          .update({ roteiro_gerado: JSON.stringify(roteiroObj) })
+          .eq('id_post', finalId);
       }
 
       router.push(`/conteudo/editor/${finalId}`);
