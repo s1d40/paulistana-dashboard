@@ -5,7 +5,8 @@ import { useState, useRef, useEffect, Suspense, useCallback } from 'react';
 import { 
   Send, Loader2, User, Bot, ArrowLeft, ChevronDown, Edit3, 
   Lock, RotateCcw, Play, Database, Save, GripHorizontal,
-  BrainCircuit, Wand2, Terminal, RefreshCcw
+  BrainCircuit, Wand2, Terminal, RefreshCcw,
+  Monitor, Smartphone, Subtitles
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -84,6 +85,8 @@ function ChatContent() {
   const [arcPrompt, setArcPrompt] = useState(DEFAULT_ARCHITECT_PROMPT);
   const [useRealProducts, setUseRealProducts] = useState(false);
   const [isArcSidebarOpen, setIsArcSidebarOpen] = useState(false);
+  const [formatoVideo, setFormatoVideo] = useState<'landscape' | 'portrait'>('landscape');
+  const [comLegendas, setComLegendas] = useState(false);
 
   // --- PRODUCTS CACHE ---
   const [products, setProducts] = useState<Product[]>([]);
@@ -610,10 +613,7 @@ function ChatContent() {
       }
 
       // 4. Dispara a Geração via n8n (Async)
-      // Busca config de vídeo do preset ativo
-      const presetConfig = usePresetStore.getState().presets.find(p => p.id === activePresetId)?.config || {};
-      const formatoVideo = presetConfig.formato_video || 'landscape';
-      const comLegendas = presetConfig.com_legendas !== undefined ? presetConfig.com_legendas : false;
+      // formatoVideo e comLegendas vêm dos toggles do sidebar
 
       const response = await fetch('/api/chat/roteirista', {
         method: 'POST',
@@ -960,6 +960,61 @@ function ChatContent() {
                 />
               )}
             </div>
+
+            {/* === TOGGLES DE FORMATO E LEGENDAS === */}
+            <div className="space-y-2 pt-2">
+              {/* Formato de Vídeo */}
+              <label className="flex items-center justify-between p-3.5 bg-zinc-950 border border-zinc-800 rounded-2xl cursor-pointer group hover:border-indigo-500/50 transition-all shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className={clsx(
+                    "p-2 rounded-lg transition-colors",
+                    formatoVideo === 'landscape' ? "bg-sky-500/20 text-sky-400" : "bg-orange-500/20 text-orange-400"
+                  )}>
+                    {formatoVideo === 'landscape' ? <Monitor className="w-3.5 h-3.5" /> : <Smartphone className="w-3.5 h-3.5" />}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase text-zinc-200 tracking-tight">{formatoVideo === 'landscape' ? 'Landscape (16:9)' : 'Portrait (9:16)'}</span>
+                    <span className="text-[8px] font-medium text-zinc-500">Formato do vídeo</span>
+                  </div>
+                </div>
+                <input type="checkbox" checked={formatoVideo === 'landscape'} onChange={() => setFormatoVideo(f => f === 'landscape' ? 'portrait' : 'landscape')} className="hidden" />
+                <div className={clsx(
+                  "w-8 h-4 rounded-full relative transition-all duration-300",
+                  formatoVideo === 'landscape' ? "bg-sky-500" : "bg-orange-500"
+                )}>
+                  <div className={clsx(
+                    "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-sm",
+                    formatoVideo === 'landscape' ? "left-4.5" : "left-0.5"
+                  )} />
+                </div>
+              </label>
+
+              {/* Legendas */}
+              <label className="flex items-center justify-between p-3.5 bg-zinc-950 border border-zinc-800 rounded-2xl cursor-pointer group hover:border-indigo-500/50 transition-all shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className={clsx(
+                    "p-2 rounded-lg transition-colors",
+                    comLegendas ? "bg-amber-500/20 text-amber-400" : "bg-zinc-800 text-zinc-500"
+                  )}>
+                    <Subtitles className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase text-zinc-200 tracking-tight">Legendas</span>
+                    <span className="text-[8px] font-medium text-zinc-500">{comLegendas ? 'Com legendas animadas' : 'Sem legendas'}</span>
+                  </div>
+                </div>
+                <input type="checkbox" checked={comLegendas} onChange={(e) => setComLegendas(e.target.checked)} className="hidden" />
+                <div className={clsx(
+                  "w-8 h-4 rounded-full relative transition-all duration-300",
+                  comLegendas ? "bg-amber-500" : "bg-zinc-800"
+                )}>
+                  <div className={clsx(
+                    "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-sm",
+                    comLegendas ? "left-4.5" : "left-0.5"
+                  )} />
+                </div>
+              </label>
+            </div>
           </div>
           <div className="flex-1 flex flex-col gap-2 min-h-0">
             <label className="text-[8px] font-black text-zinc-500 uppercase tracking-tighter flex items-center justify-between shrink-0">
@@ -1001,9 +1056,9 @@ function ChatContent() {
                     <div className={clsx("w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-2xl border transition-all", m.role === 'user' ? "bg-zinc-900 border-zinc-800 text-zinc-500" : "bg-indigo-600 border-indigo-500 text-white")}>
                       {m.role === 'user' ? <User className="w-5 h-5" /> : <Bot className="w-5 h-5" />}
                     </div>
-                    <div className={clsx("max-w-[85%] p-5 rounded-[1.5rem] shadow-2xl leading-relaxed text-sm transition-all", m.role === 'user' ? "bg-indigo-600 text-white rounded-tr-none shadow-indigo-600/20 font-semibold whitespace-pre-wrap" : "bg-zinc-900 text-zinc-300 border border-zinc-800 rounded-tl-none font-medium")}>
+                    <div className={clsx("max-w-[85%] p-6 rounded-[1.5rem] shadow-2xl leading-relaxed transition-all", m.role === 'user' ? "bg-indigo-600 text-white rounded-tr-none shadow-indigo-600/20 font-semibold whitespace-pre-wrap text-sm" : "bg-zinc-900 text-zinc-200 border border-zinc-800 rounded-tl-none")}>
                       {m.role === 'user' ? m.content : (
-                        <div className="prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-p:mb-4 last:prose-p:mb-0 prose-strong:text-white prose-strong:font-black prose-ul:list-disc prose-ul:pl-4 prose-li:mb-1 prose-headings:text-white prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tighter prose-code:bg-zinc-800 prose-code:px-1 prose-code:rounded prose-code:text-indigo-400">
+                        <div className="prose prose-invert prose-base max-w-none prose-p:leading-[1.8] prose-p:mb-4 prose-p:text-[13px] last:prose-p:mb-0 prose-strong:text-white prose-strong:font-black prose-ul:list-disc prose-ul:pl-5 prose-li:mb-1.5 prose-li:text-[13px] prose-headings:text-white prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tighter prose-headings:text-sm prose-code:bg-zinc-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-indigo-400 prose-code:text-xs">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                         </div>
                       )}
