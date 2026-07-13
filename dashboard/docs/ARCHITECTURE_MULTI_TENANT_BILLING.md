@@ -188,3 +188,18 @@ O crédito deve ser descontado em transações críticas, como a geração de co
 
 ## Conclusão
 Este planejamento garante que a plataforma seja 100% segura (Zero Data Leakage entre clientes graças ao RLS do PostgreSQL), pronta para monetização, mantendo os dados antigos intactos e pronta para receber SSO seguro.
+
+## 5. Arquitetura de Produtos, Assinaturas e Validade de Créditos
+
+Com a evolução para um modelo SaaS, o sistema suporta **Planos e Modularização de Features** integrados diretamente na arquitetura de faturamento.
+
+### Modelo de Assinaturas (SaaS)
+- **`subscription_plans`**: Define pacotes (Ex: Básico, Pro, Enterprise) com preços, quantidade de créditos e recorrência.
+- **`plan_features`**: Sistema modular de permissões. Permite liberar funções no código do frontend (ex: botão de geração de vídeo, agendamento para YouTube) dinamicamente checando se o plano atrelado ao `client_id` possui a `feature_key` correspondente.
+- **`client_subscriptions`**: Associa o cliente (`clients.id`) ao plano contratado e suporta colunas genéricas para Webhooks de gateways de pagamentos (Stripe, Mercado Pago) por meio dos campos `payment_provider`, `provider_customer_id` e `provider_subscription_id`.
+
+### Motor Financeiro de Créditos (Lotes de 90 dias)
+Devido ao modelo de negócio em que os créditos expiram após 90 dias, a arquitetura abandona o conceito de saldo numérico estático (`client_balances`) para focar em **Lotes de Crédito (`credit_batches`)**.
+
+- Toda vez que uma assinatura é renovada ou o cliente compra "Add-ons", um novo lote (`credit_batch`) é gerado no banco de dados com a coluna `expires_at = NOW() + INTERVAL '90 days'`.
+- O consumo é feito através de uma função SQL (`consume_credits(client_id, amount)`) que utiliza a regra contábil **FIFO (First In, First Out)**, garantindo que o sistema sempre gaste primeiro os créditos mais antigos que ainda estão na validade, varrendo os lotes que atendem ao critério de `expires_at > NOW()`. O método implementa travas de banco de dados (`FOR UPDATE`) para evitar problemas de concorrência simultânea.
