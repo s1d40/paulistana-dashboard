@@ -577,6 +577,33 @@ export default function TimelineEditorPage() {
             {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
             Compilar
           </button>
+
+          <button 
+            onClick={async () => {
+              if (!id) return;
+              const ok = confirm('Enviar para produção em segundo plano? O worker irá gerar imagens, narração e renderizar o vídeo automaticamente.');
+              if (!ok) return;
+              try {
+                // Salva alterações antes de produzir
+                await handleSave();
+                const res = await fetch('/api/content/render', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ postId: id }),
+                });
+                if (!res.ok) throw new Error('Falha ao iniciar produção');
+                alert('✅ Produção iniciada em segundo plano! O vídeo será processado pelo worker.');
+              } catch (err) {
+                console.error(err);
+                alert('Erro ao iniciar produção em background.');
+              }
+            }}
+            disabled={isProcessing}
+            className="flex items-center gap-2 px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-orange-500/20 transition-all disabled:opacity-50"
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            Produzir (Background)
+          </button>
         </div>
       </header>
 

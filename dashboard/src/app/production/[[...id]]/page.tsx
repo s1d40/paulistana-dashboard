@@ -767,12 +767,13 @@ export default function ProductionStudioPage() {
           id_cena: cena.id_cena || crypto.randomUUID()
         };
         if (!updatedCena.replicate) {
+          const isLandscape = script.formato_video === 'landscape' || !script.formato_video;
           updatedCena.replicate = {
             model_url: modelIdToUrl(resolvedImageModel),
             input: {
               prompt: updatedCena.prompt_visual,
               negative_prompt: updatedCena.prompt_negativo,
-              aspect_ratio: '9:16',
+              aspect_ratio: isLandscape ? '16:9' : '9:16',
               output_format: 'jpg'
             }
           };

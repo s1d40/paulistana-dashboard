@@ -43,6 +43,8 @@ export interface VideoScript {
   caption_final: string;
   direcao_de_arte: string;
   voice_settings?: ElevenLabsVoiceSettings; // Optional voice settings
+  formato_video?: 'portrait' | 'landscape'; // Video orientation
+  com_legendas?: boolean; // Whether to include animated subtitles
   cenas: VideoScene[];
 }
 

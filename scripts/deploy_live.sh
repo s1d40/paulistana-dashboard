@@ -46,9 +46,7 @@ echo -e "\n📦 1/4. Executando compilação (build) local do Next.js..."
 cd "$DASHBOARD_DIR"
 
 if [ -d ".next" ]; then
-  echo "🧹 Limpando processos e build anterior (.next)..."
-  pkill -f "next" || true
-  sleep 1
+  echo "🧹 Limpando build anterior (.next)..."
   rm -rf .next
 fi
 

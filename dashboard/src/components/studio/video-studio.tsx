@@ -94,12 +94,14 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
       }
 
       if (!updatedScene.replicate) {
+        // Usa formato_video do roteiro para definir aspect_ratio
+        const isLandscape = data.formato_video === 'landscape' || !data.formato_video;
         updatedScene.replicate = {
           model_url: AVAILABLE_MODELS[0].url,
           input: {
             prompt: updatedScene.prompt_visual,
             negative_prompt: updatedScene.prompt_negativo,
-            aspect_ratio: '9:16' as const,
+            aspect_ratio: isLandscape ? '16:9' as const : '9:16' as const,
             output_format: 'jpg' as const
           }
         };
