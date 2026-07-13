@@ -6,8 +6,10 @@ import { supabase } from '@/lib/supabase';
 import { 
   Activity, Server, Cpu, HardDrive, RefreshCw, AlertTriangle, 
   CheckCircle2, TerminalSquare, Settings2, PlayCircle, Clock,
-  Power, RotateCcw, Eye, XCircle, Zap, MemoryStick, ScrollText
+  Power, RotateCcw, XCircle, Zap, ScrollText, Wifi, WifiOff,
+  MemoryStick, MonitorDot
 } from 'lucide-react';
+import clsx from 'clsx';
 
 interface PM2Process {
   name: string;
@@ -18,8 +20,21 @@ interface PM2Process {
   uptime: number;
   restarts: number;
   pid: number;
-  version: string;
-  mode: string;
+  server: string;
+}
+
+interface ServerInfo {
+  name: string;
+  host: string;
+  label: string;
+  specs: { vcpu: number; ram: string; disk: string; plan: string };
+  isLocal: boolean;
+  processes: PM2Process[];
+  online: number;
+  total: number;
+  totalMemory: number;
+  totalCpu: number;
+  reachable: boolean;
 }
 
 interface QueueItem {
@@ -29,18 +44,13 @@ interface QueueItem {
   data_criacao: string;
 }
 
-// Color config per process
-const PROCESS_COLORS: Record<string, { gradient: string; icon: string; border: string; bg: string; text: string }> = {
-  dashboard: { gradient: 'from-indigo-500/20', icon: 'text-indigo-400', border: 'border-indigo-500/30', bg: 'bg-indigo-500/10', text: 'text-indigo-300' },
-  worker: { gradient: 'from-amber-500/20', icon: 'text-amber-400', border: 'border-amber-500/30', bg: 'bg-amber-500/10', text: 'text-amber-300' },
-  cocreator: { gradient: 'from-violet-500/20', icon: 'text-violet-400', border: 'border-violet-500/30', bg: 'bg-violet-500/10', text: 'text-violet-300' },
-  conversor: { gradient: 'from-cyan-500/20', icon: 'text-cyan-400', border: 'border-cyan-500/30', bg: 'bg-cyan-500/10', text: 'text-cyan-300' },
+const SERVER_COLORS: Record<string, { accent: string; border: string; bg: string; gradient: string }> = {
+  'cocreator-helsinki': { accent: 'text-indigo-400', border: 'border-indigo-500/20', bg: 'bg-indigo-500/10', gradient: 'from-indigo-600/20 via-indigo-500/5 to-transparent' },
+  'ubuntu-32gb-hel1-1': { accent: 'text-amber-400', border: 'border-amber-500/20', bg: 'bg-amber-500/10', gradient: 'from-amber-600/20 via-amber-500/5 to-transparent' },
 };
 
-const getProcessColor = (name: string) => PROCESS_COLORS[name] || { gradient: 'from-zinc-500/20', icon: 'text-zinc-400', border: 'border-zinc-500/30', bg: 'bg-zinc-500/10', text: 'text-zinc-300' };
-
 export default function ServerDashboard() {
-  const [processes, setProcesses] = useState<PM2Process[]>([]);
+  const [servers, setServers] = useState<ServerInfo[]>([]);
   const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -51,8 +61,8 @@ export default function ServerDashboard() {
     try {
       const res = await fetch('/api/server/pm2');
       const data = await res.json();
-      if (data.processes) {
-        setProcesses(data.processes);
+      if (data.servers) {
+        setServers(data.servers);
       }
       setLastUpdate(new Date());
     } catch (err) {
@@ -84,21 +94,21 @@ export default function ServerDashboard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, () => fetchQueue())
       .subscribe();
 
-    const interval = setInterval(fetchStatus, 8000);
+    const interval = setInterval(fetchStatus, 10000);
     return () => { supabase.removeChannel(channel); clearInterval(interval); };
   }, [fetchStatus, fetchQueue]);
 
-  const handleAction = async (action: string, processName: string) => {
+  const handleAction = async (action: string, processName: string, serverHost: string) => {
     const key = `${action}-${processName}`;
     if (action === 'restart' && !confirm(`Reiniciar ${processName}?`)) return;
-    if (action === 'stop' && !confirm(`Parar ${processName}? O serviço ficará offline.`)) return;
+    if (action === 'stop' && !confirm(`Parar ${processName}?`)) return;
     
     setActionLoading(key);
     try {
       const res = await fetch('/api/server/pm2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, processName })
+        body: JSON.stringify({ action, processName, serverHost })
       });
       const data = await res.json();
       
@@ -106,7 +116,7 @@ export default function ServerDashboard() {
         setLogsModal({ name: processName, logs: data.logs });
       }
       
-      setTimeout(fetchStatus, 1500);
+      setTimeout(fetchStatus, 2000);
     } catch (err) {
       console.error(err);
     }
@@ -114,7 +124,7 @@ export default function ServerDashboard() {
   };
 
   const handleResetQueue = async () => {
-    if (!confirm('Mover todos os posts "Processando" e com "Erro" de volta para "Produzir"?')) return;
+    if (!confirm('Mover todos os posts com erro de volta para "Produzir"?')) return;
     try {
       await fetch('/api/server/queue', {
         method: 'POST',
@@ -155,23 +165,25 @@ export default function ServerDashboard() {
     return `${hours}h ${minutes}m`;
   };
 
-  const totalMemory = processes.reduce((sum, p) => sum + p.memory, 0);
-  const totalCpu = processes.reduce((sum, p) => sum + p.cpu, 0);
-  const onlineCount = processes.filter(p => p.status === 'online').length;
+  const totalProcesses = servers.reduce((s, sv) => s + sv.total, 0);
+  const totalOnline = servers.reduce((s, sv) => s + sv.online, 0);
+  const totalMem = servers.reduce((s, sv) => s + sv.totalMemory, 0);
+  const totalCpu = servers.reduce((s, sv) => s + sv.totalCpu, 0);
 
   return (
     <div className="flex flex-col bg-gradient-to-br from-zinc-950 via-zinc-900 to-black min-h-full text-white font-sans">
         
-      <header className="px-8 py-5 border-b border-white/5 flex items-center justify-between sticky top-0 bg-zinc-950/80 backdrop-blur-xl z-20">
+      {/* HEADER */}
+      <header className="px-6 md:px-8 py-5 border-b border-white/5 flex items-center justify-between sticky top-0 bg-zinc-950/80 backdrop-blur-xl z-20">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-indigo-500/10 rounded-xl border border-indigo-500/20 relative">
             <Server className="w-6 h-6 text-indigo-400" />
-            <div className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ${onlineCount === processes.length ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]'}`} />
+            <div className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ${totalOnline === totalProcesses ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]'}`} />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-white">Server Control Panel</h1>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              {onlineCount}/{processes.length} processos online · Atualizado {lastUpdate.toLocaleTimeString('pt-BR')}
+            <h1 className="text-xl font-bold tracking-tight text-white">Painel de Controle</h1>
+            <p className="text-[11px] text-zinc-500 mt-0.5">
+              {servers.length} servidores · {totalOnline}/{totalProcesses} processos · {lastUpdate.toLocaleTimeString('pt-BR')}
             </p>
           </div>
         </div>
@@ -180,201 +192,217 @@ export default function ServerDashboard() {
         </button>
       </header>
 
-      <main className="p-6 md:p-8 max-w-7xl mx-auto w-full flex flex-col gap-6 flex-1">
+      <main className="p-4 md:p-8 max-w-7xl mx-auto w-full flex flex-col gap-6 flex-1">
         
-        {/* === SUMMARY CARDS === */}
+        {/* === GLOBAL SUMMARY === */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-1.5 group hover:border-emerald-500/30 transition-all">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-1 hover:border-emerald-500/30 transition-all">
             <div className="flex justify-between items-center">
-              <span className="text-xs text-zinc-500 font-medium">Processos</span>
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Processos</span>
               <Activity className="w-4 h-4 text-emerald-400" />
             </div>
-            <span className="text-2xl font-bold">{onlineCount}<span className="text-sm font-normal text-zinc-500">/{processes.length}</span></span>
+            <span className="text-2xl font-bold">{totalOnline}<span className="text-sm font-normal text-zinc-500">/{totalProcesses}</span></span>
           </div>
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-1.5 group hover:border-blue-500/30 transition-all">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-1 hover:border-blue-500/30 transition-all">
             <div className="flex justify-between items-center">
-              <span className="text-xs text-zinc-500 font-medium">Memória Total</span>
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">RAM Total</span>
               <MemoryStick className="w-4 h-4 text-blue-400" />
             </div>
-            <span className="text-2xl font-bold">{formatBytes(totalMemory)}</span>
+            <span className="text-2xl font-bold">{formatBytes(totalMem)}</span>
           </div>
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-1.5 group hover:border-orange-500/30 transition-all">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-1 hover:border-orange-500/30 transition-all">
             <div className="flex justify-between items-center">
-              <span className="text-xs text-zinc-500 font-medium">CPU Total</span>
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">CPU Total</span>
               <Cpu className="w-4 h-4 text-orange-400" />
             </div>
             <span className="text-2xl font-bold">{totalCpu.toFixed(1)}%</span>
           </div>
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-1.5 group hover:border-amber-500/30 transition-all">
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col gap-1 hover:border-amber-500/30 transition-all">
             <div className="flex justify-between items-center">
-              <span className="text-xs text-zinc-500 font-medium">Fila Worker</span>
+              <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Fila Worker</span>
               <Zap className="w-4 h-4 text-amber-400" />
             </div>
             <span className="text-2xl font-bold">{queueItems.length}<span className="text-sm font-normal text-zinc-500"> itens</span></span>
           </div>
         </div>
 
-        {/* === PROCESS CARDS === */}
-        <div>
-          <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
-            <TerminalSquare className="w-4 h-4" /> Processos PM2
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {processes.map(proc => {
-              const colors = getProcessColor(proc.name);
-              const isOnline = proc.status === 'online';
-              return (
-                <div key={proc.id} className={`bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden transition-all hover:border-white/20 ${!isOnline ? 'opacity-60' : ''}`}>
-                  {/* Gradient bar */}
-                  <div className={`h-1 bg-gradient-to-r ${colors.gradient} to-transparent`} />
-                  
-                  <div className="p-5">
-                    {/* Header */}
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-2.5 h-2.5 rounded-full ${isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse' : 'bg-red-500'}`} />
-                        <div>
-                          <h3 className="font-bold text-white text-sm tracking-tight">{proc.name}</h3>
-                          <span className="text-[10px] text-zinc-500 font-mono">PID {proc.pid} · ID {proc.id}</span>
-                        </div>
-                      </div>
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${isOnline ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-red-400 bg-red-500/10 border-red-500/20'}`}>
-                        {proc.status}
-                      </span>
-                    </div>
-
-                    {/* Metrics Grid */}
-                    <div className="grid grid-cols-4 gap-3 mb-4">
-                      <div className="bg-black/20 rounded-lg p-2.5 text-center">
-                        <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider">RAM</p>
-                        <p className="text-sm font-bold text-blue-300 mt-0.5">{formatBytes(proc.memory)}</p>
-                      </div>
-                      <div className="bg-black/20 rounded-lg p-2.5 text-center">
-                        <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider">CPU</p>
-                        <p className="text-sm font-bold text-orange-300 mt-0.5">{proc.cpu}%</p>
-                      </div>
-                      <div className="bg-black/20 rounded-lg p-2.5 text-center">
-                        <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider">Uptime</p>
-                        <p className="text-sm font-bold text-emerald-300 mt-0.5">{formatUptime(proc.uptime)}</p>
-                      </div>
-                      <div className="bg-black/20 rounded-lg p-2.5 text-center">
-                        <p className="text-[9px] text-zinc-500 uppercase font-bold tracking-wider">Restarts</p>
-                        <p className={`text-sm font-bold mt-0.5 ${proc.restarts > 100 ? 'text-red-400' : proc.restarts > 10 ? 'text-amber-300' : 'text-zinc-300'}`}>{proc.restarts}</p>
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleAction('restart', proc.name)}
-                        disabled={actionLoading === `restart-${proc.name}`}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-amber-500/10 text-zinc-300 hover:text-amber-300 text-xs font-medium rounded-lg border border-white/10 hover:border-amber-500/20 transition-all disabled:opacity-50"
-                      >
-                        <RotateCcw className={`w-3 h-3 ${actionLoading === `restart-${proc.name}` ? 'animate-spin' : ''}`} />
-                        Restart
-                      </button>
-                      <button
-                        onClick={() => handleAction('logs', proc.name)}
-                        disabled={actionLoading === `logs-${proc.name}`}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-indigo-500/10 text-zinc-300 hover:text-indigo-300 text-xs font-medium rounded-lg border border-white/10 hover:border-indigo-500/20 transition-all disabled:opacity-50"
-                      >
-                        <ScrollText className="w-3 h-3" />
-                        Logs
-                      </button>
-                      {isOnline ? (
-                        <button
-                          onClick={() => handleAction('stop', proc.name)}
-                          disabled={actionLoading === `stop-${proc.name}`}
-                          className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 text-xs font-medium rounded-lg border border-white/10 hover:border-red-500/20 transition-all disabled:opacity-50"
-                        >
-                          <XCircle className="w-3 h-3" />
-                        </button>
+        {/* === SERVER SECTIONS === */}
+        {servers.map(server => {
+          const colors = SERVER_COLORS[server.name] || SERVER_COLORS['cocreator-helsinki'];
+          return (
+            <div key={server.name} className="space-y-3">
+              {/* Server Header */}
+              <div className={`flex items-center justify-between p-4 bg-gradient-to-r ${colors.gradient} rounded-2xl border ${colors.border}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${colors.bg}`}>
+                    <MonitorDot className={`w-5 h-5 ${colors.accent}`} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="font-bold text-white text-sm">{server.label}</h2>
+                      {server.reachable ? (
+                        <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">
+                          <Wifi className="w-2.5 h-2.5" /> Online
+                        </span>
                       ) : (
-                        <button
-                          onClick={() => handleAction('start', proc.name)}
-                          disabled={actionLoading === `start-${proc.name}`}
-                          className="flex items-center justify-center gap-1.5 px-3 py-2 bg-white/5 hover:bg-emerald-500/10 text-zinc-400 hover:text-emerald-400 text-xs font-medium rounded-lg border border-white/10 hover:border-emerald-500/20 transition-all disabled:opacity-50"
-                        >
-                          <Power className="w-3 h-3" />
-                        </button>
+                        <span className="flex items-center gap-1 text-[9px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded-full">
+                          <WifiOff className="w-2.5 h-2.5" /> Offline
+                        </span>
                       )}
                     </div>
+                    <p className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                      {server.name} · {server.specs.plan} · {server.specs.vcpu} vCPU · {server.specs.ram} RAM · {server.specs.disk}
+                    </p>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+                <div className="text-right">
+                  <p className="text-lg font-bold text-white">{formatBytes(server.totalMemory)}</p>
+                  <p className="text-[10px] text-zinc-500">{server.online}/{server.total} processos</p>
+                </div>
+              </div>
+
+              {/* Process Cards */}
+              <div className={`grid grid-cols-1 ${server.processes.length > 1 ? 'md:grid-cols-2 lg:grid-cols-3' : ''} gap-3`}>
+                {server.processes.map(proc => {
+                  const isOnline = proc.status === 'online';
+                  return (
+                    <div key={`${server.name}-${proc.id}`} className={clsx(
+                      "bg-white/[0.03] border border-white/10 rounded-xl overflow-hidden transition-all hover:border-white/20",
+                      !isOnline && "opacity-60"
+                    )}>
+                      <div className="p-4">
+                        {/* Process Header */}
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`} />
+                            <div>
+                              <h3 className="font-bold text-white text-xs tracking-tight">{proc.name}</h3>
+                              <span className="text-[9px] text-zinc-600 font-mono">PID {proc.pid}</span>
+                            </div>
+                          </div>
+                          <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${isOnline ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-red-400 bg-red-500/10 border-red-500/20'}`}>
+                            {proc.status}
+                          </span>
+                        </div>
+
+                        {/* Metrics */}
+                        <div className="grid grid-cols-4 gap-2 mb-3">
+                          <div className="bg-black/30 rounded-lg p-2 text-center">
+                            <p className="text-[8px] text-zinc-500 uppercase font-bold">RAM</p>
+                            <p className="text-[11px] font-bold text-blue-300">{formatBytes(proc.memory)}</p>
+                          </div>
+                          <div className="bg-black/30 rounded-lg p-2 text-center">
+                            <p className="text-[8px] text-zinc-500 uppercase font-bold">CPU</p>
+                            <p className="text-[11px] font-bold text-orange-300">{proc.cpu}%</p>
+                          </div>
+                          <div className="bg-black/30 rounded-lg p-2 text-center">
+                            <p className="text-[8px] text-zinc-500 uppercase font-bold">Up</p>
+                            <p className="text-[11px] font-bold text-emerald-300">{formatUptime(proc.uptime)}</p>
+                          </div>
+                          <div className="bg-black/30 rounded-lg p-2 text-center">
+                            <p className="text-[8px] text-zinc-500 uppercase font-bold">↻</p>
+                            <p className={clsx("text-[11px] font-bold", proc.restarts > 100 ? 'text-red-400' : proc.restarts > 10 ? 'text-amber-300' : 'text-zinc-300')}>{proc.restarts}</p>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-1.5">
+                          <button
+                            onClick={() => handleAction('restart', proc.name, server.host)}
+                            disabled={!!actionLoading}
+                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-white/5 hover:bg-amber-500/10 text-zinc-400 hover:text-amber-300 text-[10px] font-bold rounded-lg border border-white/10 hover:border-amber-500/20 transition-all disabled:opacity-30"
+                          >
+                            <RotateCcw className={`w-2.5 h-2.5 ${actionLoading === `restart-${proc.name}` ? 'animate-spin' : ''}`} /> Restart
+                          </button>
+                          <button
+                            onClick={() => handleAction('logs', proc.name, server.host)}
+                            disabled={!!actionLoading}
+                            className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 bg-white/5 hover:bg-indigo-500/10 text-zinc-400 hover:text-indigo-300 text-[10px] font-bold rounded-lg border border-white/10 hover:border-indigo-500/20 transition-all disabled:opacity-30"
+                          >
+                            <ScrollText className="w-2.5 h-2.5" /> Logs
+                          </button>
+                          {isOnline ? (
+                            <button
+                              onClick={() => handleAction('stop', proc.name, server.host)}
+                              disabled={!!actionLoading}
+                              className="flex items-center justify-center px-2 py-1.5 bg-white/5 hover:bg-red-500/10 text-zinc-500 hover:text-red-400 text-[10px] font-bold rounded-lg border border-white/10 hover:border-red-500/20 transition-all disabled:opacity-30"
+                            >
+                              <XCircle className="w-2.5 h-2.5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleAction('start', proc.name, server.host)}
+                              disabled={!!actionLoading}
+                              className="flex items-center justify-center px-2 py-1.5 bg-white/5 hover:bg-emerald-500/10 text-zinc-500 hover:text-emerald-400 text-[10px] font-bold rounded-lg border border-white/10 hover:border-emerald-500/20 transition-all disabled:opacity-30"
+                            >
+                              <Power className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
 
         {/* === RENDER QUEUE === */}
         <div className="bg-white/5 border border-white/10 rounded-2xl flex flex-col overflow-hidden">
-          <div className="p-5 border-b border-white/5 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Zap className="w-5 h-5 text-amber-400" />
-              <h2 className="text-base font-semibold text-white">Fila de Renderização</h2>
+          <div className="p-4 border-b border-white/5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <h2 className="text-sm font-bold text-white">Fila de Renderização</h2>
               {queueItems.length > 0 && (
-                <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded-full">
                   {queueItems.length}
                 </span>
               )}
             </div>
-            <button 
-              onClick={handleResetQueue}
-              className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium rounded-lg transition-all"
-            >
-              <Settings2 className="w-3.5 h-3.5" /> Reset Geral
+            <button onClick={handleResetQueue} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white text-[10px] font-bold rounded-lg transition-all">
+              <Settings2 className="w-3 h-3" /> Reset
             </button>
           </div>
-
-          <div className="p-0">
+          <div>
             {isLoading ? (
-              <div className="p-8 text-center text-zinc-500">Carregando fila...</div>
+              <div className="p-8 text-center text-zinc-500 text-sm">Carregando...</div>
             ) : queueItems.length === 0 ? (
-              <div className="p-10 flex flex-col items-center justify-center text-zinc-500">
-                <CheckCircle2 className="w-10 h-10 text-zinc-700 mb-3" />
-                <p className="text-sm font-medium text-zinc-400">Fila vazia</p>
-                <p className="text-xs">Nenhum post aguardando renderização.</p>
+              <div className="p-8 flex flex-col items-center justify-center text-zinc-500">
+                <CheckCircle2 className="w-8 h-8 text-zinc-700 mb-2" />
+                <p className="text-xs font-medium text-zinc-400">Fila vazia</p>
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left">
                 <thead>
-                  <tr className="bg-black/20 text-[10px] uppercase tracking-wider text-zinc-500 font-bold">
-                    <th className="px-5 py-3 border-b border-white/5">ID</th>
-                    <th className="px-5 py-3 border-b border-white/5">Título</th>
-                    <th className="px-5 py-3 border-b border-white/5">Status</th>
-                    <th className="px-5 py-3 border-b border-white/5">Criado</th>
-                    <th className="px-5 py-3 border-b border-white/5 text-right">Ação</th>
+                  <tr className="bg-black/20 text-[9px] uppercase tracking-wider text-zinc-500 font-bold">
+                    <th className="px-4 py-2.5 border-b border-white/5">ID</th>
+                    <th className="px-4 py-2.5 border-b border-white/5">Título</th>
+                    <th className="px-4 py-2.5 border-b border-white/5">Status</th>
+                    <th className="px-4 py-2.5 border-b border-white/5">Criado</th>
+                    <th className="px-4 py-2.5 border-b border-white/5 text-right">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
                   {queueItems.map(item => (
                     <tr key={item.id_post} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="px-5 py-3 text-xs font-mono text-zinc-400">
-                        {item.id_post.substring(0, 8)}...
-                      </td>
-                      <td className="px-5 py-3 text-xs font-medium text-white">
-                        {item.titulo_post || 'Sem Título'}
-                      </td>
-                      <td className="px-5 py-3">
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      <td className="px-4 py-2.5 text-[10px] font-mono text-zinc-400">{item.id_post.substring(0, 8)}...</td>
+                      <td className="px-4 py-2.5 text-[11px] font-medium text-white">{item.titulo_post || 'Sem Título'}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
                           item.status === 'Processando' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' :
                           item.status === 'Produzir' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
                           'bg-red-500/10 text-red-400 border border-red-500/20'
                         }`}>
-                          {item.status === 'Processando' && <RefreshCw className="w-2.5 h-2.5 animate-spin" />}
-                          {item.status === 'Produzir' && <PlayCircle className="w-2.5 h-2.5" />}
-                          {item.status === 'Erro na Produção' && <AlertTriangle className="w-2.5 h-2.5" />}
+                          {item.status === 'Processando' && <RefreshCw className="w-2 h-2 animate-spin" />}
+                          {item.status === 'Produzir' && <PlayCircle className="w-2 h-2" />}
+                          {item.status === 'Erro na Produção' && <AlertTriangle className="w-2 h-2" />}
                           {item.status}
                         </span>
                       </td>
-                      <td className="px-5 py-3 text-xs text-zinc-500">
-                        {new Date(item.data_criacao).toLocaleString('pt-BR')}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        <button
-                          onClick={() => handleResetItem(item.id_post)}
-                          className="px-2.5 py-1 text-[10px] font-bold text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-md transition-all"
-                        >
+                      <td className="px-4 py-2.5 text-[10px] text-zinc-500">{new Date(item.data_criacao).toLocaleString('pt-BR')}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <button onClick={() => handleResetItem(item.id_post)} className="px-2 py-1 text-[9px] font-bold text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded transition-all">
                           Resetar
                         </button>
                       </td>
@@ -396,14 +424,10 @@ export default function ServerDashboard() {
                 <ScrollText className="w-4 h-4 text-indigo-400" />
                 <h3 className="font-bold text-white text-sm">Logs: {logsModal.name}</h3>
               </div>
-              <button onClick={() => setLogsModal(null)} className="text-zinc-400 hover:text-white transition-colors">
-                <XCircle className="w-5 h-5" />
-              </button>
+              <button onClick={() => setLogsModal(null)} className="text-zinc-400 hover:text-white transition-colors"><XCircle className="w-5 h-5" /></button>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <pre className="text-[11px] font-mono text-zinc-300 leading-relaxed whitespace-pre-wrap break-all">
-                {logsModal.logs}
-              </pre>
+              <pre className="text-[10px] font-mono text-zinc-300 leading-relaxed whitespace-pre-wrap break-all">{logsModal.logs}</pre>
             </div>
           </div>
         </div>
