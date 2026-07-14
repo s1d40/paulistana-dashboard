@@ -150,9 +150,9 @@ def generate_audio(text: str, voice_id="EXAVITQu4vr4xnSDxMaL"):
     return audio_path, json_path
 
 @retry_on_network_error(max_retries=3, base_delay=3)
-def generate_image(cena: dict):
+def generate_image(cena: dict, formato_video: str = "landscape"):
     prompt = cena.get('prompt_visual', '')
-    print(f"  [Replicate] Gerando imagem: {prompt[:50]}...")
+    print(f"  [Replicate] Gerando imagem ({formato_video}): {prompt[:50]}...")
     os.environ["REPLICATE_API_TOKEN"] = REPLICATE_API_TOKEN
     
     # Extrai as configs do Replicate do JSON da cena (se existirem)
@@ -162,7 +162,13 @@ def generate_image(cena: dict):
     # Converte URL REST ('https://api.replicate.com/v1/models/author/model/predictions') para string 'author/model'
     model_id = model_url.split('/models/')[-1].replace('/predictions', '') if '/models/' in model_url else "black-forest-labs/flux-schnell"
     
-    input_replicate = replicate_config.get('input', {"prompt": prompt, "aspect_ratio": "16:9"}).copy()
+    # Determina aspect_ratio baseado no formato_video
+    default_aspect = "16:9" if formato_video == "landscape" else "9:16"
+    input_replicate = replicate_config.get('input', {"prompt": prompt, "aspect_ratio": default_aspect}).copy()
+    
+    # Se o input já veio do JSON mas não tem aspect_ratio, injeta o correto
+    if 'aspect_ratio' not in input_replicate:
+        input_replicate['aspect_ratio'] = default_aspect
     
     # 2. Injeção da Referência Visual
     image_reference_url = cena.get('imagem_referencia')
@@ -301,7 +307,7 @@ def process_scene(cena, post_id, voice_settings=None, formato_video="portrait", 
         import urllib.request
         urllib.request.urlretrieve(img_url, image_path)
     else:
-        image_path = generate_image(cena)
+        image_path = generate_image(cena, formato_video=formato_video)
         img_url = upload_to_gcs(image_path, post_id, f"imagem_{num}.webp")
         
         @retry_on_network_error(max_retries=3, base_delay=2)
@@ -411,8 +417,9 @@ def process_post(post):
         if isinstance(roteiro, str):
             roteiro = json.loads(roteiro)
             
-        formato_video = roteiro.get('formato_video', post.get('formato_video', 'portrait'))
-        com_legendas = roteiro.get('com_legendas', post.get('com_legendas', True))
+        formato_video = roteiro.get('formato_video', post.get('formato_video', 'landscape'))
+        com_legendas = roteiro.get('com_legendas', post.get('com_legendas', False))
+        print(f"  [Config] Formato: {formato_video} | Legendas: {'SIM' if com_legendas else 'NÃO'}")
             
         cenas = roteiro.get('cenas', [])
         if not cenas:
