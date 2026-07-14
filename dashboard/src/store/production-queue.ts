@@ -173,6 +173,7 @@ export const useProductionQueue = create<ProductionQueueState>((set, get) => ({
     }));
 
     const finalVoiceSettings = {
+      voice_id: voiceSettings?.voice_id || 'EXAVITQu4vr4xnSDxMaL',
       model_id: voiceSettings?.model_id || "eleven_multilingual_v2",
       stability: voiceSettings?.stability ?? 0.7,
       similarity_boost: voiceSettings?.similarity_boost ?? 0.75,

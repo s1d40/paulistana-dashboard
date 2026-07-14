@@ -28,6 +28,7 @@ export interface VideoScene {
 }
 
 export interface ElevenLabsVoiceSettings {
+  voice_id: string;
   model_id: string;
   stability: number;
   similarity_boost: number;

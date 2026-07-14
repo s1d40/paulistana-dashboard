@@ -117,7 +117,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     }
 
     const defaultVoice = {
-      model_id: "eleven_multilingual_v2",
+      voice_id: data.voice_settings?.voice_id || 'EXAVITQu4vr4xnSDxMaL',
+      model_id: data.voice_settings?.model_id || "eleven_multilingual_v2",
       stability: 0.7,
       similarity_boost: 0.75,
       style: 0.15,

@@ -752,6 +752,7 @@ export default function ProductionStudioPage() {
     // Resolve cascade: most specific wins
     const resolvedImageModel = itemImageModelOverride || batchImageModel || presetImageModel;
     const globalVoiceSettings = (activePreset as any)?.config?.voice_settings || {
+      voice_id: 'EXAVITQu4vr4xnSDxMaL',
       model_id: "eleven_multilingual_v2",
       stability: 0.7,
       similarity_boost: 0.75,

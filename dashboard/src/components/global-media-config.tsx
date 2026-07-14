@@ -118,6 +118,21 @@ export default function GlobalMediaConfig() {
             />
           </div>
 
+          <div className="col-span-2">
+            <label className="text-[9px] font-bold text-zinc-400 uppercase">Modelo de Voz</label>
+            <select
+              value={voiceSettings.model_id || 'eleven_multilingual_v2'}
+              onChange={(e) => handleUpdateVoice('model_id', e.target.value)}
+              className="w-full mt-1 text-xs p-2 rounded-xl bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 outline-none focus:ring-2 focus:ring-indigo-500/20 text-zinc-700 dark:text-zinc-300"
+            >
+              <option value="eleven_multilingual_v2">Multilingual v2 (Padrão)</option>
+              <option value="eleven_turbo_v2_5">Turbo v2.5 (Rápido/Inglês)</option>
+              <option value="eleven_turbo_v2">Turbo v2</option>
+              <option value="eleven_multilingual_sts_v2">Multilingual STS v2</option>
+              <option value="eleven_monolingual_v1">Monolingual v1</option>
+            </select>
+          </div>
+
           <div>
             <label className="text-[9px] font-bold text-zinc-400 uppercase flex justify-between">
               Stability <span>{voiceSettings.stability}</span>
@@ -159,18 +174,18 @@ export default function GlobalMediaConfig() {
               Speed <span>{voiceSettings.speed}x</span>
             </label>
             <input 
-              type="range" min="0.5" max="2" step="0.05"
+              type="range" min="0.5" max="2" step="0.1"
               value={voiceSettings.speed}
               onChange={(e) => handleUpdateVoice('speed', parseFloat(e.target.value))}
               className="w-full mt-1 accent-indigo-500"
             />
           </div>
           
-          <div className="col-span-2 flex items-center gap-2 mt-1">
+          <div className="col-span-2 flex items-center mt-2">
             <input 
               type="checkbox"
               id="speaker-boost"
-              checked={voiceSettings.use_speaker_boost}
+              checked={voiceSettings.use_speaker_boost !== false}
               onChange={(e) => handleUpdateVoice('use_speaker_boost', e.target.checked)}
               className="accent-indigo-500 rounded"
             />
