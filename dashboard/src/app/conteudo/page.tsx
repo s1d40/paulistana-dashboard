@@ -181,6 +181,7 @@ function ConteudoContent() {
   const { data: allPosts = [], isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['contentPosts'],
     queryFn: fetchPosts,
+    refetchOnMount: 'always', // Sempre recarrega ao entrar na página
   });
 
   const handleRefresh = async () => {
