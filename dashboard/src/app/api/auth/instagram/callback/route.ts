@@ -179,6 +179,7 @@ export async function GET(request: Request) {
           nome_conta: accountName,
           ig_username: igUsername,
           ig_profile_picture_url: igProfilePic,
+          auth_type: 'instagram_direct',
         })
         .eq('id_conta', state);
     } else {
@@ -199,6 +200,7 @@ export async function GET(request: Request) {
             ig_username: igUsername,
             ig_profile_picture_url: igProfilePic,
             id_cliente: idCliente,
+            auth_type: 'instagram_direct',
           })
           .eq('id_conta', existing.id_conta);
       } else {
@@ -213,6 +215,7 @@ export async function GET(request: Request) {
             ig_username: igUsername,
             ig_profile_picture_url: igProfilePic,
             id_cliente: idCliente,
+            auth_type: 'instagram_direct',
           });
         
         if (insertError) {

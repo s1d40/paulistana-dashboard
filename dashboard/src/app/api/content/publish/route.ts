@@ -64,11 +64,30 @@ export async function POST(request: Request) {
       throw new Error(`Configuração de Webhook para a plataforma '${platform}' ausente.`);
     }
 
+    // 2.5 Buscar dados da conta (tokens) para enviar ao n8n
+    const { data: account, error: accountError } = await supabase
+      .from('contas')
+      .select('conta_id_instagram, ig_access_token, facebook_access_token, conta_id_facebook')
+      .eq('id_conta', accountId)
+      .single();
+
+    if (accountError || !account) {
+      throw new Error('Conta não encontrada no banco de dados');
+    }
+
+    // Determina o tipo de autenticação pela presença de facebook_access_token
+    const isDirectIG = !account.facebook_access_token;
+
     const payload = {
       action: 'publish_content',
       platform,
       id_post: postId,
       id_conta: accountId,
+      auth_type: isDirectIG ? 'instagram_direct' : 'facebook',
+      api_base: isDirectIG ? 'https://graph.instagram.com' : 'https://graph.facebook.com',
+      access_token: isDirectIG ? account.ig_access_token : (account.facebook_access_token || account.ig_access_token),
+      ig_account_id: account.conta_id_instagram,
+      fb_page_id: account.conta_id_facebook,
       metadata: {
         title: post.titulo_post,
         theme: post.tema_post,

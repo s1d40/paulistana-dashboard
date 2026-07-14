@@ -69,7 +69,8 @@ export async function GET(request: Request) {
       .from('contas')
       .update({
         ig_access_token: longLivedToken,
-        facebook_access_token: longLivedToken
+        facebook_access_token: longLivedToken,
+        auth_type: 'facebook',
       })
       .eq('id_conta', contaId);
 
