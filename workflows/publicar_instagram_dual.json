@@ -1,0 +1,224 @@
+{
+  "name": "Publicar no Instagram (Dual API)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "63e09a9b-fc19-4a14-818e-7ac30406c56e",
+        "options": {
+          "rawBody": false
+        },
+        "responseMode": "lastNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Publicar IG",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "63e09a9b-fc19-4a14-818e-7ac30406c56e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Preparar dados para publicação\nconst input = $input.first().json;\n\n// Montar caption com hashtags\nlet caption = input.metadata?.captions || input.metadata?.title || '';\nconst hashtags = input.metadata?.hashtags || '';\nif (hashtags) {\n  caption = caption.trim() + '\\n\\n' + hashtags.trim();\n}\n\n// API base e token vêm mastigados do frontend\nconst apiBase = input.api_base || 'https://graph.instagram.com';\nconst accessToken = input.access_token || '';\nconst igAccountId = input.ig_account_id || '';\nconst videoUrl = input.metadata?.video_url || '';\nconst postId = input.id_post || '';\nconst authType = input.auth_type || 'instagram_direct';\n\nif (!accessToken || !igAccountId || !videoUrl) {\n  throw new Error(`Dados incompletos: token=${!!accessToken}, igId=${!!igAccountId}, video=${!!videoUrl}`);\n}\n\nconsole.log(`[Publish] ${authType} | API: ${apiBase} | IG: ${igAccountId}`);\nconsole.log(`[Publish] Video: ${videoUrl.substring(0, 80)}...`);\nconsole.log(`[Publish] Caption: ${caption.substring(0, 60)}...`);\n\nreturn [{\n  json: {\n    apiBase,\n    accessToken,\n    igAccountId,\n    videoUrl,\n    caption,\n    postId,\n    authType,\n    containerUrl: `${apiBase}/v21.0/${igAccountId}/media`,\n    publishUrl: `${apiBase}/v21.0/${igAccountId}/media_publish`\n  }\n}];"
+      },
+      "id": "prepare-data",
+      "name": "Preparar Dados",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.containerUrl }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "access_token", "value": "={{ $json.accessToken }}" },
+            { "name": "media_type", "value": "REELS" },
+            { "name": "video_url", "value": "={{ $json.videoUrl }}" },
+            { "name": "caption", "value": "={{ $json.caption }}" },
+            { "name": "share_to_feed", "value": "true" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-container",
+      "name": "1. Criar Container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extrair creation_id e preparar para polling\nconst prevData = $('Preparar Dados').first().json;\nconst container = $input.first().json;\n\nconst creationId = container.id;\nif (!creationId) {\n  throw new Error('Container não retornou creation_id: ' + JSON.stringify(container));\n}\n\nconsole.log(`[Publish] Container criado: ${creationId}`);\n\nreturn [{\n  json: {\n    ...prevData,\n    creationId,\n    statusCheckUrl: `${prevData.apiBase}/v21.0/${creationId}?fields=status_code&access_token=${prevData.accessToken}`,\n    attempts: 0,\n    maxAttempts: 30\n  }\n}];"
+      },
+      "id": "extract-container-id",
+      "name": "Extrair Container ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.statusCheckUrl }}",
+        "options": {}
+      },
+      "id": "check-status",
+      "name": "2. Verificar Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1160, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verificar se o container está pronto\nconst prevData = $('Extrair Container ID').first().json;\nconst status = $input.first().json;\n\nconst statusCode = status.status_code || status.status;\nconst attempts = (prevData.attempts || 0) + 1;\n\nconsole.log(`[Publish] Status check #${attempts}: ${statusCode}`);\n\nif (statusCode === 'FINISHED') {\n  return [{\n    json: {\n      ...prevData,\n      ready: true,\n      statusCode\n    }\n  }];\n}\n\nif (statusCode === 'ERROR' || statusCode === 'EXPIRED') {\n  throw new Error(`Container falhou com status: ${statusCode}`);\n}\n\nif (attempts >= prevData.maxAttempts) {\n  throw new Error(`Timeout: status ainda ${statusCode} após ${attempts} tentativas`);\n}\n\n// Não está pronto, retornar para polling\nreturn [{\n  json: {\n    ...prevData,\n    ready: false,\n    statusCode,\n    attempts\n  }\n}];"
+      },
+      "id": "evaluate-status",
+      "name": "Avaliar Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "ready-check",
+              "leftValue": "={{ $json.ready }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-ready",
+      "name": "Pronto?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1640, 300]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait-5s",
+      "name": "Aguardar 5s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1400, 520]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Extrair Container ID').first().json.statusCheckUrl }}",
+        "options": {}
+      },
+      "id": "recheck-status",
+      "name": "Re-verificar Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1160, 520]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.publishUrl }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "access_token", "value": "={{ $json.accessToken }}" },
+            { "name": "creation_id", "value": "={{ $json.creationId }}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "publish-media",
+      "name": "3. Publicar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1880, 300],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resultado final\nconst prevData = $('Avaliar Status').first().json;\nconst publishResult = $input.first().json;\n\nconst mediaId = publishResult.id;\n\nif (!mediaId) {\n  console.error('[Publish] Erro na publicação:', JSON.stringify(publishResult));\n  throw new Error('Publicação falhou: ' + (publishResult.error?.message || JSON.stringify(publishResult)));\n}\n\nconsole.log(`[Publish] ✅ Publicado com sucesso! Media ID: ${mediaId}`);\n\nreturn [{\n  json: {\n    success: true,\n    mediaId,\n    postId: prevData.postId,\n    igAccountId: prevData.igAccountId,\n    authType: prevData.authType,\n    message: `Post publicado com sucesso no Instagram (${prevData.authType})`\n  }\n}];"
+      },
+      "id": "result",
+      "name": "Resultado Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2120, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Publicar IG": {
+      "main": [
+        [{ "node": "Preparar Dados", "type": "main", "index": 0 }]
+      ]
+    },
+    "Preparar Dados": {
+      "main": [
+        [{ "node": "1. Criar Container", "type": "main", "index": 0 }]
+      ]
+    },
+    "1. Criar Container": {
+      "main": [
+        [{ "node": "Extrair Container ID", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extrair Container ID": {
+      "main": [
+        [{ "node": "2. Verificar Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "2. Verificar Status": {
+      "main": [
+        [{ "node": "Avaliar Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Avaliar Status": {
+      "main": [
+        [{ "node": "Pronto?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Pronto?": {
+      "main": [
+        [{ "node": "3. Publicar", "type": "main", "index": 0 }],
+        [{ "node": "Aguardar 5s", "type": "main", "index": 0 }]
+      ]
+    },
+    "Aguardar 5s": {
+      "main": [
+        [{ "node": "Re-verificar Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Re-verificar Status": {
+      "main": [
+        [{ "node": "Avaliar Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "3. Publicar": {
+      "main": [
+        [{ "node": "Resultado Final", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    { "name": "Instagram" },
+    { "name": "Publishing" }
+  ]
+}
