@@ -10,11 +10,11 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
     setPathname(window.location.pathname);
   }, []);
 
-  const isLoginPage = pathname === '/login' || pathname === '/register';
+  const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/register';
 
   return (
     <div className="h-screen flex overflow-hidden">
-      {!isLoginPage && <Sidebar />}
+      {!isPublicPage && <Sidebar />}
       <div className="flex flex-1 flex-col overflow-y-auto">
         {children}
       </div>

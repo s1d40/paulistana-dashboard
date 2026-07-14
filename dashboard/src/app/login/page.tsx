@@ -41,7 +41,7 @@ function LoginContent() {
         setError('Email ou senha incorretos.');
         setLoading(false);
       } else {
-        window.location.href = '/';
+        window.location.href = '/dashboard';
       }
     } catch {
       setError('Erro ao fazer login. Tente novamente.');
@@ -52,7 +52,7 @@ function LoginContent() {
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
-      await signIn('google', { callbackUrl: '/' });
+      await signIn('google', { callbackUrl: '/dashboard' });
     } catch (err) {
       console.error('Login error:', err);
       alert('Erro ao tentar logar com o Google.');
