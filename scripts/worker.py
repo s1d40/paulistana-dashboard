@@ -545,14 +545,32 @@ def check_queue():
     
     for post in posts:
         post_id = post['id_post']
-        print(f"\n[{time.strftime('%H:%M:%S')}] Iniciando produção: {post.get('tema_post', 'N/A')} ({post_id[:8]}...)")
+        expected_status = post.get('status')
+        print(f"\n[{time.strftime('%H:%M:%S')}] Tentando travar produção: {post.get('tema_post', 'N/A')} ({post_id[:8]}...)")
         
-        # Lock the post immediately
+        # Atomic Lock: We only update if the status is still what we queried.
+        # For 'Produzir', this is perfectly atomic (only one worker will successfully change it to 'Processando').
+        # For 'Processando' (rescue), we inject a unique worker_id into the audio_status temporarily to lock it, then set it back.
         try:
             fresh_db = get_fresh_supabase_client()
-            fresh_db.table("posts").update({"status": "Processando"}).eq("id_post", post_id).execute()
+            
+            if expected_status == "Produzir":
+                update_res = fresh_db.table("posts").update({"status": "Processando"}).eq("id_post", post_id).eq("status", "Produzir").execute()
+                if not update_res.data or len(update_res.data) == 0:
+                    print(f"-> ⏭️ Lock falhou (post já pego por outro worker). Pulando...")
+                    continue
+            else:
+                # Rescue case (already Processando)
+                worker_lock_id = f"Locked_{str(uuid.uuid4())[:8]}"
+                lock_res = fresh_db.table("posts").update({"audio_status": worker_lock_id}).eq("id_post", post_id).eq("audio_status", post.get("audio_status")).execute()
+                if not lock_res.data or len(lock_res.data) == 0:
+                    print(f"-> ⏭️ Lock de resgate falhou. Pulando...")
+                    continue
+                # Reset the audio_status back to Pendente so the pipeline works properly
+                fresh_db.table("posts").update({"audio_status": "Pendente"}).eq("id_post", post_id).execute()
+                
         except Exception as e:
-            print(f"-> ⚠️ Falha ao travar post {post_id[:8]}: {e}")
+            print(f"-> ⚠️ Falha na API ao tentar travar post {post_id[:8]}: {e}")
             continue
         
         process_post(post)
