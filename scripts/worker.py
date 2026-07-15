@@ -421,6 +421,17 @@ def process_post(post):
         com_legendas = roteiro.get('com_legendas', post.get('com_legendas', False))
         print(f"  [Config] Formato: {formato_video} | Legendas: {'SIM' if com_legendas else 'NÃO'}")
             
+        # Normalization: If the AI output uses 'roteiro' instead of 'cenas'
+        if 'cenas' not in roteiro and 'roteiro' in roteiro and isinstance(roteiro['roteiro'], list):
+            roteiro['cenas'] = []
+            for i, r_cena in enumerate(roteiro['roteiro']):
+                roteiro['cenas'].append({
+                    'numero': i + 1,
+                    'texto_narrado': r_cena.get('narracao', r_cena.get('texto_narrado', '')),
+                    'prompt_visual': r_cena.get('visual', r_cena.get('prompt_visual', '')),
+                    'animacao': r_cena.get('animacao', 'zoom_in')
+                })
+                
         cenas = roteiro.get('cenas', [])
         if not cenas:
             raise Exception("Nenhuma cena encontrada no roteiro.")

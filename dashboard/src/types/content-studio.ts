@@ -114,19 +114,72 @@ export interface BlogScript {
   content: string; // HTML string
 }
 
-// --- DISCRIMINATOR FUNCTIONS ---
+// --- DISCRIMINATOR E NORMALIZER FUNCTIONS ---
+
+export function normalizeScriptData(data: unknown): any {
+  if (!data || typeof data !== 'object') return data;
+  const d = { ...(data as Record<string, unknown>) };
+
+  // Se não tem tipo_post explícito mas tem roteiro/cenas, assume vídeo
+  if (!d.tipo_post) {
+    if (d.roteiro || d.cenas || d.narracao) {
+      d.tipo_post = 'video';
+    }
+  }
+
+  // Se tem roteiro em vez de cenas, mapeia
+  if (d.roteiro && Array.isArray(d.roteiro) && !d.cenas) {
+    d.cenas = d.roteiro.map((cena: any, index: number) => ({
+      numero: index + 1,
+      texto_narrado: cena.narracao || cena.texto_narrado || '',
+      prompt_visual: cena.visual || cena.prompt_visual || '',
+      prompt_negativo: d.prompt_negativo || '',
+      animacao: cena.animacao || 'zoom_in',
+      modelo_ia: 'Padrão',
+      usa_referencia: false,
+      tipo_referencia: null,
+      slug_produto: null
+    }));
+  }
+
+  return d;
+}
+
 export function isVideoScript(data: unknown): data is VideoScript {
   if (!data || typeof data !== 'object') return false;
   const d = data as Record<string, unknown>;
   const type = (d.tipo_post as string || '').toLowerCase();
-  return type === 'video';
+  
+  if (type.includes('video') || type.includes('vídeo') || type.includes('reels') || type.includes('shorts') || type.includes('tiktok') || type.includes('mentor')) {
+    return true;
+  }
+  
+  // Fallback: se tiver cenas e texto_narrado
+  if (Array.isArray(d.cenas) && d.cenas.length > 0) {
+     if ('texto_narrado' in (d.cenas[0] as object) || 'narracao' in (d.cenas[0] as object)) {
+         return true;
+     }
+  }
+  
+  return false;
 }
 
 export function isCarrosselScript(data: unknown): data is CarrosselScript {
   if (!data || typeof data !== 'object') return false;
   const d = data as Record<string, unknown>;
   const type = (d.tipo_post as string || '').toLowerCase();
-  return type === 'carrossel';
+  
+  if (type.includes('carrossel') || type.includes('carousel')) {
+    return true;
+  }
+  
+  if (Array.isArray(d.cenas) && d.cenas.length > 0) {
+     if ('payload_api' in (d.cenas[0] as object)) {
+         return true;
+     }
+  }
+  
+  return false;
 }
 
 export function isBlogScript(data: unknown): data is BlogScript {

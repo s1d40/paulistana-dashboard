@@ -3,6 +3,7 @@ import {
   isVideoScript, 
   isCarrosselScript, 
   isBlogScript, 
+  normalizeScriptData,
   VideoScript, 
   CarrosselScript, 
   BlogScript 
@@ -58,7 +59,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   if (rawJson !== prevRawJson) {
     setPrevRawJson(rawJson);
     try {
-      const parsed = JSON.parse(rawJson);
+      const parsed = normalizeScriptData(JSON.parse(rawJson));
       setData(parsed);
       setError(null);
     } catch (e) {
@@ -70,7 +71,7 @@ export const ScriptStudio: React.FC<ScriptStudioProps> = ({
   // Initial initialization if state is empty
   if (data === null && error === null && rawJson) {
     try {
-      setData(JSON.parse(rawJson));
+      setData(normalizeScriptData(JSON.parse(rawJson)));
     } catch {
       setError('O JSON do roteiro está malformado ou corrompido.');
     }
