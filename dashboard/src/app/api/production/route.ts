@@ -111,7 +111,13 @@ export async function POST(request: Request) {
           preset: {
             id: presetId,
             name: presetName,
-            systemMessage: systemMessage,
+            systemMessage: (() => {
+               const isCarrossel = systemMessage?.toLowerCase().includes('carrossel');
+               const schemaInstruction = isCarrossel 
+                 ? `\n\n[ESTRUTURA OBRIGATÓRIA DO ROTEIRO]\nSua resposta DEVE ser EXCLUSIVAMENTE um objeto JSON estritamente válido usando as chaves abaixo:\n{\n  "tipo_post": "carrossel",\n  "tema": "...",\n  "cenas": [\n    {\n      "numero": 1,\n      "prompt_visual": "...",\n      "payload_api": { "slideCategory": "hook", "content": { "headline": "...", "subHeadline": "..." } }\n    }\n  ]\n}`
+                 : `\n\n[ESTRUTURA OBRIGATÓRIA DO ROTEIRO]\nSua resposta DEVE ser EXCLUSIVAMENTE um objeto JSON estritamente válido. Você DEVE usar OBRIGATORIAMENTE a estrutura exata de chaves abaixo (não altere o nome das chaves):\n{\n  "tipo_post": "video",\n  "tema": "...",\n  "titulo_otimizado": "...",\n  "caption_final": "...",\n  "direcao_de_arte": "...",\n  "cenas": [\n    {\n      "numero": 1,\n      "texto_narrado": "...",\n      "prompt_visual": "...",\n      "prompt_negativo": "...",\n      "animacao": "zoom_in",\n      "usa_referencia": false,\n      "tipo_referencia": null,\n      "slug_produto": null\n    }\n  ]\n}`;
+               return systemMessage + schemaInstruction;
+            })(),
             prompt: prompt || '',
           },
           items: items || [],

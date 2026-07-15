@@ -13,14 +13,57 @@ export async function POST(req: Request) {
     // URL do seu novo Worker_Roteirista Stateless no n8n
     const N8N_ROTEIRISTA_WEBHOOK = 'https://n8n.sfaisolutions.com/webhook/1a24782d-a935-454f-af0a-be3a57e42a32';
 
-    // Inject video format and subtitles config into the system message so the AI includes it in the JSON output
+    // Inject video format, subtitles, and strict JSON schema into the system message
     const isLandscape = config?.formato_video === 'landscape';
     const hasSubtitles = config?.com_legendas !== false;
     
-    const configInstruction = `\n\n[INSTRUÇÃO CRÍTICA DE CONFIGURAÇÃO]
-Você DEVE incluir OBRIGATORIAMENTE na raiz do JSON final as seguintes duas propriedades exatamente como mostradas abaixo:
-"formato_video": "${isLandscape ? 'landscape' : 'portrait'}",
-"com_legendas": ${hasSubtitles ? 'true' : 'false'}`;
+    const isCarrossel = finalSystemMessage.toLowerCase().includes('carrossel');
+    const isBlog = finalSystemMessage.toLowerCase().includes('blog');
+    
+    let schemaInstruction = `
+[ESTRUTURA OBRIGATÓRIA DO ROTEIRO]
+Sua resposta DEVE ser EXCLUSIVAMENTE um objeto JSON estritamente válido.
+Você DEVE usar OBRIGATORIAMENTE a estrutura exata de chaves abaixo (não altere o nome das chaves):
+{
+  "tipo_post": "video",
+  "tema": "...",
+  "titulo_otimizado": "...",
+  "caption_final": "...",
+  "direcao_de_arte": "...",
+  "formato_video": "${isLandscape ? 'landscape' : 'portrait'}",
+  "com_legendas": ${hasSubtitles ? 'true' : 'false'},
+  "cenas": [
+    {
+      "numero": 1,
+      "texto_narrado": "...",
+      "prompt_visual": "...",
+      "prompt_negativo": "...",
+      "animacao": "zoom_in",
+      "usa_referencia": false,
+      "tipo_referencia": null,
+      "slug_produto": null
+    }
+  ]
+}`;
+
+    if (isCarrossel) {
+       schemaInstruction = `
+[ESTRUTURA OBRIGATÓRIA DO ROTEIRO]
+Sua resposta DEVE ser EXCLUSIVAMENTE um objeto JSON estritamente válido usando as chaves abaixo:
+{
+  "tipo_post": "carrossel",
+  "tema": "...",
+  "cenas": [
+    {
+      "numero": 1,
+      "prompt_visual": "...",
+      "payload_api": { "slideCategory": "hook", "content": { "headline": "...", "subHeadline": "..." } }
+    }
+  ]
+}`;
+    }
+
+    const configInstruction = `\n\n[INSTRUÇÃO CRÍTICA DE CONFIGURAÇÃO]\nVocê DEVE incluir OBRIGATORIAMENTE na raiz do JSON final as seguintes duas propriedades exatamente como mostradas abaixo:\n"formato_video": "${isLandscape ? 'landscape' : 'portrait'}",\n"com_legendas": ${hasSubtitles ? 'true' : 'false'}\n\n${schemaInstruction}`;
 
     const system_message_with_config = finalSystemMessage + configInstruction;
 
