@@ -56,6 +56,8 @@ export interface ProductionItem {
   // Strategy overrides
   imageStrategy?: 'ai' | 'produto' | 'embalagem' | 'ambos';
   imageModelOverride?: string;
+  voiceIdOverride?: string;
+  voiceModelOverride?: string;
 }
 
 import { useParams, useRouter } from 'next/navigation';
@@ -93,13 +95,14 @@ export default function ProductionStudioPage() {
   const [isSingleLoading, setIsSingleLoading] = useState(false);
 
   // Fila para auto-produção após roteiro assíncrono
-  const [autoProduceQueue, setAutoProduceQueue] = useState<Set<string>>(new Set());
+
 
   // Refs para controle de polling
   const isFetchingRef = useRef(false);
 
   // UI States
   const [showConfig, setShowConfig] = useState(false);
+  const [showBulkSettings, setShowBulkSettings] = useState(false);
   const [isChatCollapsed, setIsChatCollapsed] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
 
@@ -500,15 +503,10 @@ export default function ProductionStudioPage() {
   };
 
   const uuidsRef = useRef<string[]>([]);
-  const autoProduceQueueRef = useRef<Set<string>>(autoProduceQueue);
 
   useEffect(() => {
     uuidsRef.current = productionItems.map(i => i.uuid);
   }, [productionItems]);
-
-  useEffect(() => {
-    autoProduceQueueRef.current = autoProduceQueue;
-  }, [autoProduceQueue]);
 
   // --- REAL-TIME POLLING LOGIC ---
   const fetchUpdatedState = useCallback(async (payload?: any) => {
@@ -586,20 +584,8 @@ export default function ProductionStudioPage() {
 
             const newScriptGeneratingStatus = hasValidScript ? 'success' : (dbStatus === 'Processando Roteiro' || dbStatus.startsWith('Processando') ? 'generating' : (dbStatus === 'Erro na Produção' ? 'error' : item.scriptGeneratingStatus));
 
-            // Auto-produce logic: se o script acabou de ficar pronto e estava na fila de auto-produção
-            if (hasValidScript && !item.hasScript && autoProduceQueueRef.current.has(item.uuid)) {
-              supabase.from('posts').update({ status: 'Produzir' }).eq('id_post', item.uuid).then(({ error }) => {
-                if (!error) {
-                  setAutoProduceQueue(prev => {
-                    const next = new Set(prev);
-                    next.delete(item.uuid);
-                    return next;
-                  });
-                }
-              });
-              // Para a interface não piscar em 'Aguardando', já forçamos visualmente para Processando
-              newStatus = 'Processando';
-            }
+            // O backend (worker.py) agora gerencia o resgate e auto-produção.
+            // O frontend apenas reflete o estado do banco.
 
             const hasValidCaptions = livePost?.captions && livePost.captions.length > 0;
             const newCaptionsGeneratingStatus = hasValidCaptions ? 'success' : item.captionsGeneratingStatus;
@@ -1137,7 +1123,20 @@ export default function ProductionStudioPage() {
         status: 'Processando Roteiro',
         id_conta: selectedAccount.id_conta,
         captions: item.captions || '',
-        hashtags: item.hashtags || ''
+        hashtags: item.hashtags || '',
+        feedback: JSON.stringify({
+          image_model: item.imageModelOverride || batchImageModel || (activePreset as any)?.config?.image_model || DEFAULT_IMAGE_MODEL,
+          voice_settings: (() => {
+              const base = (activePreset as any)?.config?.voiceSettings || (activePreset as any)?.config?.voice_settings || {};
+              const overridden = { ...base };
+              if (item.voiceIdOverride) overridden.voice_id = item.voiceIdOverride;
+              if (item.voiceModelOverride) overridden.model_id = item.voiceModelOverride;
+              return Object.keys(overridden).length > 0 ? overridden : undefined;
+          })(),
+          formato_video: (activePreset as any)?.config?.formato_video || 'portrait',
+          com_legendas: (activePreset as any)?.config?.com_legendas ?? true,
+          auto_produce: true
+        })
       };
 
       if (dataSource === 'lists' && selectedListId) {
@@ -1166,7 +1165,15 @@ export default function ProductionStudioPage() {
             model: (activePreset as any)?.config?.model || 'gpt-4o',
             temperature: (activePreset as any)?.config?.temperature || 0.7,
             image_model: item.imageModelOverride || batchImageModel || (activePreset as any)?.config?.image_model || DEFAULT_IMAGE_MODEL,
-            voice_settings: (activePreset as any)?.config?.voice_settings || undefined,
+            voice_settings: (() => {
+              const base = (activePreset as any)?.config?.voiceSettings || (activePreset as any)?.config?.voice_settings || {};
+              const overridden = { ...base };
+              if (item.voiceIdOverride) overridden.voice_id = item.voiceIdOverride;
+              if (item.voiceModelOverride) overridden.model_id = item.voiceModelOverride;
+              return Object.keys(overridden).length > 0 ? overridden : undefined;
+            })(),
+            formato_video: (activePreset as any)?.config?.formato_video || 'portrait',
+            com_legendas: (activePreset as any)?.config?.com_legendas ?? true,
             prompt: newPrompt
           }
         }),
@@ -1295,7 +1302,22 @@ export default function ProductionStudioPage() {
       
       setProcessingItems(prev => new Set(prev).add(item.uuid));
       updateItemState(item.uuid, { videoGeneratingStatus: 'idle', status: 'Processando' });
-      await supabase.from('posts').update({ status: 'Produzir' }).eq('id_post', item.uuid);
+      await supabase.from('posts').update({ 
+        status: 'Produzir',
+        feedback: JSON.stringify({
+          image_model: item.imageModelOverride || batchImageModel || (activePreset as any)?.config?.image_model || DEFAULT_IMAGE_MODEL,
+          voice_settings: (() => {
+              const base = (activePreset as any)?.config?.voiceSettings || (activePreset as any)?.config?.voice_settings || {};
+              const overridden = { ...base };
+              if (item.voiceIdOverride) overridden.voice_id = item.voiceIdOverride;
+              if (item.voiceModelOverride) overridden.model_id = item.voiceModelOverride;
+              return Object.keys(overridden).length > 0 ? overridden : undefined;
+          })(),
+          formato_video: (activePreset as any)?.config?.formato_video || 'portrait',
+          com_legendas: (activePreset as any)?.config?.com_legendas ?? true,
+          auto_produce: true
+        })
+      }).eq('id_post', item.uuid);
       
     } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
       console.error(err);
@@ -1315,7 +1337,7 @@ export default function ProductionStudioPage() {
       updateItemState(item.uuid, { status: 'Processando' });
 
       if (!item.hasScript) {
-        setAutoProduceQueue(prev => new Set(prev).add(item.uuid));
+        // O fluxo continuará via worker.py (background) quando o n8n finalizar o roteiro
         if (item.scriptGeneratingStatus !== 'generating') {
           await handleGenerateScript(item);
         }
@@ -1324,7 +1346,22 @@ export default function ProductionStudioPage() {
       
       const { error } = await supabase
         .from('posts')
-        .update({ status: 'Produzir' })
+        .update({ 
+          status: 'Produzir',
+          feedback: JSON.stringify({
+            image_model: item.imageModelOverride || batchImageModel || (activePreset as any)?.config?.image_model || DEFAULT_IMAGE_MODEL,
+            voice_settings: (() => {
+                const base = (activePreset as any)?.config?.voiceSettings || (activePreset as any)?.config?.voice_settings || {};
+                const overridden = { ...base };
+                if (item.voiceIdOverride) overridden.voice_id = item.voiceIdOverride;
+                if (item.voiceModelOverride) overridden.model_id = item.voiceModelOverride;
+                return Object.keys(overridden).length > 0 ? overridden : undefined;
+            })(),
+            formato_video: (activePreset as any)?.config?.formato_video || 'portrait',
+            com_legendas: (activePreset as any)?.config?.com_legendas ?? true,
+            auto_produce: true
+          })
+        })
         .eq('id_post', item.uuid);
         
       if (error) {
@@ -1379,6 +1416,18 @@ export default function ProductionStudioPage() {
           >
             <Settings2 className={clsx("w-4 h-4", showConfig && "animate-spin-slow")} />
             Configurar Agente
+          </button>
+          <button 
+            onClick={() => setShowBulkSettings(!showBulkSettings)}
+            className={clsx(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all",
+              showBulkSettings 
+                ? "bg-amber-500 text-white shadow-lg shadow-amber-500/20" 
+                : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200"
+            )}
+          >
+            <Layers className="w-4 h-4" />
+            Ajustes em Lote
           </button>
           
           <button 
@@ -1471,6 +1520,86 @@ export default function ProductionStudioPage() {
           </div>
         </div>
       </div>
+
+      {/* PAINEL DE AJUSTES EM LOTE */}
+      {showBulkSettings && isDashboardView && productionItems.length > 0 && (
+        <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border-b border-indigo-100 dark:border-indigo-900/50 p-4 shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4">
+          <div className="flex items-center gap-6">
+            <h3 className="text-[10px] font-black uppercase text-indigo-600 dark:text-indigo-400 tracking-widest flex items-center gap-1.5 shrink-0">
+              <Layers className="w-3.5 h-3.5" /> Forçar Configuração (Lote)
+            </h3>
+            
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-bold text-zinc-500 uppercase">Modelo Imagem:</span>
+                <select
+                  className="text-xs p-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 outline-none focus:ring-2 focus:ring-indigo-500/20 text-zinc-700 dark:text-zinc-300 font-bold max-w-[200px]"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if(val) {
+                      setProductionItems(prev => prev.map(item => ({ ...item, imageModelOverride: val === 'inherit' ? undefined : val })));
+                      e.target.value = "";
+                    }
+                  }}
+                >
+                  <option value="">-- Selecione --</option>
+                  <option value="inherit">Herda do Preset (Limpar)</option>
+                  <option value="google/nano-banana">Nano Banana v1 (Google)</option>
+                  <option value="dall-e-3">DALL-E 3 (OpenAI)</option>
+                  <option value="midjourney-v6">Midjourney v6 (Premium)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-bold text-zinc-500 uppercase">Voz:</span>
+                <select
+                  className="text-xs p-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 outline-none focus:ring-2 focus:ring-indigo-500/20 text-zinc-700 dark:text-zinc-300 font-bold"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if(val) {
+                      setProductionItems(prev => prev.map(item => ({ ...item, voiceIdOverride: val === 'inherit' ? undefined : val })));
+                      e.target.value = "";
+                    }
+                  }}
+                >
+                  <option value="">-- Selecione --</option>
+                  <option value="inherit">Herda do Preset (Limpar)</option>
+                  <option value="EXAVITQu4vr4xnSDxMaL">Bella (Soft/Female)</option>
+                  <option value="pNInz6obpgDQGcFmaJgB">Adam (Deep/Narration)</option>
+                  <option value="21m00Tcm4TlvDq8ikWAM">Rachel (Calm/Female)</option>
+                  <option value="ErXwobaYiN019PkySvjV">Antoni (Well-rounded)</option>
+                  <option value="TX3OmfQAelAqweILnX">Josh (Deep/Male)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] font-bold text-zinc-500 uppercase">Modelo IA (Voz):</span>
+                <select
+                  className="text-xs p-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 outline-none focus:ring-2 focus:ring-indigo-500/20 text-zinc-700 dark:text-zinc-300 font-bold"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if(val) {
+                      setProductionItems(prev => prev.map(item => ({ ...item, voiceModelOverride: val === 'inherit' ? undefined : val })));
+                      e.target.value = "";
+                    }
+                  }}
+                >
+                  <option value="">-- Selecione --</option>
+                  <option value="inherit">Herda do Preset (Limpar)</option>
+                  <option value="eleven_multilingual_v2">Multilingual v2</option>
+                  <option value="eleven_turbo_v2_5">Turbo v2.5</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <button 
+            onClick={() => setShowBulkSettings(false)}
+            className="text-[10px] font-bold text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
+          >
+            Fechar
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 flex overflow-hidden relative">
         

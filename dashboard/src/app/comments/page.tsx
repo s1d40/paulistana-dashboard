@@ -442,23 +442,7 @@ export default function CommentsPage() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-2 mt-3 flex-wrap">
-                        <button
-                          onClick={() => handleLike(comment.id, !!comment.isLiked)}
-                          disabled={likingId === comment.id}
-                          className={clsx(
-                            "flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold transition-all",
-                            comment.isLiked
-                              ? "bg-pink-50 dark:bg-pink-900/20 text-pink-500"
-                              : "hover:bg-pink-50 dark:hover:bg-pink-900/20 text-zinc-400 hover:text-pink-500"
-                          )}
-                        >
-                          {likingId === comment.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Heart className={clsx("w-3 h-3", comment.isLiked && "fill-current")} />
-                          )}
-                          {comment.likes} {comment.isLiked ? 'Curtido' : 'Curtir'}
-                        </button>
+
                         <button
                           onClick={() => { setReplyingTo(replyingTo === comment.id ? null : comment.id); setReplyText(''); }}
                           className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-bold text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all"
@@ -498,23 +482,36 @@ export default function CommentsPage() {
 
                       {/* Reply Input */}
                       {replyingTo === comment.id && (
-                        <div className="mt-3 flex items-center gap-2">
-                          <input
-                            type="text"
-                            value={replyText}
-                            onChange={(e) => setReplyText(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleReply(comment.id)}
-                            placeholder="Escreva sua resposta..."
-                            autoFocus
-                            className="flex-1 bg-zinc-100 dark:bg-zinc-800 border-0 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 outline-none focus:ring-2 focus:ring-indigo-500/30"
-                          />
-                          <button
-                            onClick={() => handleReply(comment.id)}
-                            disabled={!replyText.trim() || isSending}
-                            className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all disabled:opacity-50"
-                          >
-                            {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                          </button>
+                        <div className="mt-3 flex flex-col gap-2">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {['👏', '🔥', '❤️', '🙌', '😍', '😂', '😢', '🙏', '💡'].map(emoji => (
+                              <button
+                                key={emoji}
+                                onClick={() => setReplyText(prev => prev + emoji)}
+                                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors text-sm"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={replyText}
+                              onChange={(e) => setReplyText(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleReply(comment.id)}
+                              placeholder="Escreva sua resposta..."
+                              autoFocus
+                              className="flex-1 bg-zinc-100 dark:bg-zinc-800 border-0 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 outline-none focus:ring-2 focus:ring-indigo-500/30"
+                            />
+                            <button
+                              onClick={() => handleReply(comment.id)}
+                              disabled={!replyText.trim() || isSending}
+                              className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all disabled:opacity-50"
+                            >
+                              {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>

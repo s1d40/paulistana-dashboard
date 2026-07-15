@@ -23,7 +23,7 @@ Quando o usuário pedir para gerar ou salvar a lista, você DEVE OBRIGATORIAMENT
 Após usar a ferramenta com sucesso, responda: "✅ Lista de produção gerada e salva com sucesso. Você já pode acessá-la no painel de Produção em Massa."`;
 
 function IdeationStudioContent() {
-  const { presets } = usePresetStore();
+  const { presets, initializePresets } = usePresetStore();
   
   // State
   const [activePresetId, setActivePresetId] = useState<string>('');
@@ -34,7 +34,7 @@ function IdeationStudioContent() {
   const [useStoreProducts, setUseStoreProducts] = useState(true);
   const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
 
-  // Load products from Supabase
+  // Load products and presets from Supabase
   useEffect(() => {
     async function loadProducts() {
       try {
@@ -45,7 +45,8 @@ function IdeationStudioContent() {
       }
     }
     loadProducts();
-  }, []);
+    initializePresets();
+  }, [initializePresets]);
 
   // Setup initial preset
   useEffect(() => {

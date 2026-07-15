@@ -24,15 +24,21 @@ interface ProductionItem {
   hashtags?: string;
   status_agendamento?: string;
   data_agendamento?: string;
-  hasScript?: boolean;
   statusDetalhe?: string;
+  
+  // Staging Area Flags
+  hasScript?: boolean;
   scriptGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
   captionsGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
   imagesGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
   audiosGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
   videoGeneratingStatus?: 'idle' | 'generating' | 'success' | 'error';
+
+  // Strategy overrides
   imageStrategy?: 'ai' | 'produto' | 'embalagem' | 'ambos';
   imageModelOverride?: string;
+  voiceIdOverride?: string;
+  voiceModelOverride?: string;
 }
 
 interface ProductionCardProps {
@@ -188,11 +194,34 @@ export default function ProductionCard({
                         value={item.imageModelOverride || activeImageModel || 'google/nano-banana'}
                         onChange={(modelId) => onUpdateState(item.uuid, { imageModelOverride: modelId })}
                         size="compact"
-                        label={item.imageModelOverride ? 'Modelo (Override)' : 'Modelo (Herdado)'}
+                        label={item.imageModelOverride ? 'Modelo Imagem (Override)' : 'Modelo Imagem (Herdado)'}
                       />
-                      {item.imageModelOverride && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          className="w-full text-[10px] p-2 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-zinc-700 dark:text-zinc-300 font-bold tracking-wider disabled:opacity-50"
+                          value={item.voiceIdOverride || ''}
+                          onChange={e => onUpdateState(item.uuid, { voiceIdOverride: e.target.value || undefined })}
+                        >
+                          <option value="">Voz (Herdada)</option>
+                          <option value="EXAVITQu4vr4xnSDxMaL">Bella (Soft/Female)</option>
+                          <option value="pNInz6obpgDQGcFmaJgB">Adam (Deep/Narration)</option>
+                          <option value="21m00Tcm4TlvDq8ikWAM">Rachel (Calm/Female)</option>
+                          <option value="ErXwobaYiN019PkySvjV">Antoni (Well-rounded)</option>
+                          <option value="TX3OmfQAelAqweILnX">Josh (Deep/Male)</option>
+                        </select>
+                        <select
+                          className="w-full text-[10px] p-2 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-zinc-700 dark:text-zinc-300 font-bold tracking-wider disabled:opacity-50"
+                          value={item.voiceModelOverride || ''}
+                          onChange={e => onUpdateState(item.uuid, { voiceModelOverride: e.target.value || undefined })}
+                        >
+                          <option value="">IA (Herdada)</option>
+                          <option value="eleven_multilingual_v2">Multilingual v2</option>
+                          <option value="eleven_turbo_v2_5">Turbo v2.5</option>
+                        </select>
+                      </div>
+                      {(item.imageModelOverride || item.voiceIdOverride || item.voiceModelOverride) && (
                         <button 
-                          onClick={() => onUpdateState(item.uuid, { imageModelOverride: undefined })}
+                          onClick={() => onUpdateState(item.uuid, { imageModelOverride: undefined, voiceIdOverride: undefined, voiceModelOverride: undefined })}
                           className="text-[8px] font-bold text-indigo-500 hover:text-indigo-400 uppercase self-end"
                         >
                           ↩ Resetar para Preset

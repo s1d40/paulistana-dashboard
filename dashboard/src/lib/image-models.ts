@@ -70,7 +70,7 @@ export function urlToModelId(url: string): string {
   if (url.includes('/models/')) {
     return url.split('/models/')[1].replace('/predictions', '');
   }
-  return 'google/nano-banana';
+  return 'google/nano-banana-2';
 }
 
 /**
@@ -83,4 +83,4 @@ export function getModelById(id: string): ImageModel | undefined {
 /**
  * Retorna o modelo padrão.
  */
-export const DEFAULT_IMAGE_MODEL = 'google/nano-banana';
+export const DEFAULT_IMAGE_MODEL = 'google/nano-banana-2';

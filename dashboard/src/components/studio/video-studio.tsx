@@ -117,7 +117,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     }
 
     const defaultVoice = {
-      voice_id: data.voice_settings?.voice_id || 'EXAVITQu4vr4xnSDxMaL',
+      voice_id: data.voice_settings?.voice_id || 'pNInz6obpgDQGcFmaJgB',
       model_id: data.voice_settings?.model_id || "eleven_multilingual_v2",
       stability: 0.7,
       similarity_boost: 0.75,
@@ -1455,18 +1455,34 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                }}
              />
 
-             {/* FOOTER: PUBLISHING & STATUS */}      {finalVideo && (
-        <div className="h-24 bg-indigo-600 border-t border-indigo-500 px-12 flex items-center justify-between shadow-[0_-20px_50px_rgba(79,70,229,0.2)]">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
-                <CheckCircle2 className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h4 className="text-white font-black uppercase tracking-tighter">Vídeo Master Finalizado</h4>
-                <p className="text-indigo-100 text-[10px] font-bold opacity-80 uppercase">Pronto para distribuição multi-plataforma</p>
-              </div>
-            </div>
+             {/* FOOTER: PUBLISHING & STATUS */}
+      {finalVideo && (
+        (() => {
+          const allScenesReady = data?.cenas?.every((cena: any) => 
+            videos?.some((v: any) => Number(v.numero_cena) === Number(cena.numero) && v.status === 'Concluído')
+          ) ?? false;
+
+          return (
+            <div className={clsx(
+              "h-24 px-12 flex items-center justify-between border-t shadow-[0_-20px_50px_rgba(0,0,0,0.2)]",
+              allScenesReady 
+                ? "bg-indigo-600 border-indigo-500 shadow-[0_-20px_50px_rgba(79,70,229,0.2)]"
+                : "bg-orange-600 border-orange-500 shadow-[0_-20px_50px_rgba(234,88,12,0.2)]"
+            )}>
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                    {allScenesReady ? <CheckCircle2 className="w-6 h-6 text-white" /> : <AlertTriangle className="w-6 h-6 text-white" />}
+                  </div>
+                  <div>
+                    <h4 className="text-white font-black uppercase tracking-tighter">
+                      {allScenesReady ? "Vídeo Master Finalizado" : "Vídeo Compilado com Cenas Pendentes"}
+                    </h4>
+                    <p className={clsx("text-[10px] font-bold opacity-80 uppercase", allScenesReady ? "text-indigo-100" : "text-orange-100")}>
+                      {allScenesReady ? "Pronto para distribuição multi-plataforma" : "Algumas cenas falharam durante a geração e foram ignoradas."}
+                    </p>
+                  </div>
+                </div>
 
             {/* Publication Links (Dynamic via Realtime) */}
             <div className="flex items-center gap-2 ml-4">
@@ -1549,8 +1565,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
              >
                <RefreshCw className={clsx("w-4 h-4", isProcessing && "animate-spin")} />
              </button>
-             </div>
-             </div>
-             )}    </div>
+              </div>
+            </div>
+          );
+        })()
+      )}
+    </div>
   );
 };

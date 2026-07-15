@@ -1,7 +1,7 @@
 'use client';
 export const dynamic = 'force-dynamic';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { usePresetStore, ContentType, SystemMessageSession, Preset } from '@/store/presetStore';
 import { Plus, Save, Trash2, CheckCircle2, ArrowLeft, Lock, Unlock, Type, FileJson, Video, Layout, FileText, RefreshCcw, Copy, Star } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
@@ -9,7 +9,7 @@ import Link from 'next/link';
 import clsx from 'clsx';
 
 function PresetsContent() {
-  const { presets, activePresetId, addPreset, updatePreset, deletePreset, setActivePreset } = usePresetStore();
+  const { presets, activePresetId, addPreset, updatePreset, deletePreset, setActivePreset, initializePresets } = usePresetStore();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   
@@ -22,6 +22,11 @@ function PresetsContent() {
     setPrevIdFromUrl(idFromUrl);
     setEditingId(idFromUrl);
   }
+
+  // Ensure presets are loaded from DB when accessing this page
+  useEffect(() => {
+    initializePresets();
+  }, [initializePresets]);
 
   const editingPreset = presets.find((p) => p.id === editingId) || null;
 

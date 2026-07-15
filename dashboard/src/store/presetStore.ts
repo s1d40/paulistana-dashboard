@@ -259,18 +259,39 @@ export const usePresetStore = create<PresetState>()(
         }
       },
 
-      addPreset: (presetData) => set((state) => {
+      addPreset: (presetData) => {
         const newPreset: Preset = {
           ...presetData,
           id: crypto.randomUUID(),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        return {
+        
+        set((state) => ({
           presets: [...state.presets, newPreset],
           activePresetId: state.presets.length === 0 ? newPreset.id : state.activePresetId,
-        };
-      }),
+        }));
+
+        // Fire and forget insert into Supabase
+        supabase
+          .from('content_presets')
+          .insert({
+            id: newPreset.id,
+            name: newPreset.name,
+            description: newPreset.description,
+            track: newPreset.type,
+            sessions: newPreset.sessions,
+            config: {
+              prompt: newPreset.prompt,
+              model: newPreset.model,
+              temperature: newPreset.temperature,
+              isFavorite: newPreset.isFavorite,
+            }
+          })
+          .then(({ error }) => {
+            if (error) console.error('[Supabase] Erro ao criar preset no banco:', error);
+          });
+      },
 
       updatePreset: (id, updates) => {
         set((state) => ({
@@ -314,18 +335,36 @@ export const usePresetStore = create<PresetState>()(
 
       setActivePreset: (id) => set({ activePresetId: id }),
       
-      resetToDefaults: () => set(() => {
+      resetToDefaults: () => {
         const newPresets = DEFAULT_PRESETS.map(p => ({
           ...p,
           id: crypto.randomUUID(),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }));
-        return {
+        
+        set({
           presets: newPresets,
           activePresetId: newPresets[0].id
-        };
-      })
+        });
+
+        // Fire and forget insert defaults to Supabase
+        Promise.all(newPresets.map(preset => 
+          supabase.from('content_presets').insert({
+            id: preset.id,
+            name: preset.name,
+            description: preset.description,
+            track: preset.type,
+            sessions: preset.sessions,
+            config: {
+              prompt: preset.prompt,
+              model: preset.model,
+              temperature: preset.temperature,
+              isFavorite: preset.isFavorite,
+            }
+          })
+        )).catch(err => console.error('[Supabase] Erro ao resetar para padroes:', err));
+      }
     }),
     {
       name: 'n8n-presets-storage',

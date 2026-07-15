@@ -19,7 +19,7 @@ export default function TimelineEditorPage() {
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const { generateAssets, renderAllScenes, compileFinalVideo, isProcessing } = useProductionQueue();
-  const [automationState, setAutomationState] = useState<'idle' | 'waiting_assets' | 'waiting_scenes'>('idle');
+
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Clear save timeout on unmount
@@ -194,59 +194,6 @@ export default function TimelineEditorPage() {
     return () => clearInterval(pollingInterval);
   }, [id, refreshAssets]);
 
-  // --- SEQUENTIAL AUTOMATION LOGIC ---
-  useEffect(() => {
-    if (automationState === 'idle' || !details || !details.post?.roteiro_gerado) return;
-
-    const script = JSON.parse(details.post.roteiro_gerado);
-    const scenes = script.cenas || [];
-
-    if (automationState === 'waiting_assets') {
-      const hasAllAssets = scenes.every((scene: { numero: number | string }) => {
-        const hasImg = details.imagens.some(img => Number(img.numero_cena) === Number(scene.numero));
-        const hasAud = details.audios.some(aud => Number(aud.numero_cena) === Number(scene.numero));
-        return hasImg && hasAud;
-      });
-
-      if (hasAllAssets && !isProcessingRef.current) {
-        setAutomationState('waiting_scenes');
-        alert('Assets gerados com sucesso! Iniciando renderização das cenas restantes...');
-        
-        const scenesToRender = scenes.filter((scene: { numero: number | string }) => {
-          return !details.videos_cenas?.some(v => Number(v.numero_cena) === Number(scene.numero));
-        });
-
-        if (scenesToRender.length > 0) {
-          renderAllScenes(id as string, scenesToRender, details.imagens, details.audios).catch(err => {
-             console.error(err);
-             setAutomationState('idle');
-             alert('Erro ao iniciar renderização na automação.');
-          });
-        }
-      }
-    } else if (automationState === 'waiting_scenes') {
-      const hasAllVideos = scenes.every((scene: { numero: number | string }) => {
-        return details.videos_cenas?.some(v => Number(v.numero_cena) === Number(scene.numero));
-      });
-
-      if (hasAllVideos && !isProcessingRef.current) {
-        setAutomationState('idle');
-        const proceed = confirm('Todas as cenas foram renderizadas! Deseja compilar o vídeo final agora?');
-        if (proceed) {
-          const urls = scenes
-            .map((scene: { numero: number }) => {
-              const v = details.videos_cenas?.find(vc => Number(vc.numero_cena) === Number(scene.numero));
-              return v?.video_url;
-            })
-            .filter(Boolean) as string[];
-          compileFinalVideo(id as string, urls).catch(err => {
-             console.error(err);
-             alert('Erro ao iniciar compilação.');
-          });
-        }
-      }
-    }
-  }, [details, automationState, id, renderAllScenes, compileFinalVideo]);
 
   const invalidateFinalVideo = async () => {
     if (id) {
@@ -303,70 +250,6 @@ export default function TimelineEditorPage() {
     } catch {
       alert('Erro ao iniciar renderização das cenas.');
     }
-  };
-
-  const handleRenderFinal = async () => {
-    if (!id || !details?.post?.roteiro_gerado) return;
-    
-    const script = JSON.parse(details.post.roteiro_gerado);
-    const scenes = script.cenas;
-    
-    const hasAllAssets = scenes.every((scene: { numero: number | string }) => {
-      const hasImg = details.imagens.some(img => Number(img.numero_cena) === Number(scene.numero));
-      const hasAud = details.audios.some(aud => Number(aud.numero_cena) === Number(scene.numero));
-      return hasImg && hasAud;
-    });
-
-    const hasAllVideos = scenes.every((scene: { numero: number | string }) => {
-      return details.videos_cenas?.some(v => Number(v.numero_cena) === Number(scene.numero));
-    });
-
-    if (!hasAllAssets) {
-      const proceed = confirm('Existem assets pendentes. O sistema irá gerar os assets ausentes, renderizar as cenas restantes e compilar o vídeo final. Prosseguir?');
-      if (proceed) {
-        const scenesWithMissingAssets = scenes.filter((scene: { numero: number | string }) => {
-          const hasImg = details.imagens.some(img => Number(img.numero_cena) === Number(scene.numero));
-          const hasAud = details.audios.some(aud => Number(aud.numero_cena) === Number(scene.numero));
-          return !(hasImg && hasAud);
-        });
-        
-        setAutomationState('waiting_assets');
-        await generateAssets(id as string, scenesWithMissingAssets, script.voice_settings);
-        return;
-      }
-      return;
-    }
-
-    if (!hasAllVideos) {
-      const proceed = confirm('Algumas cenas ainda não foram renderizadas. O sistema irá renderizar as pendentes e compilar o vídeo. Prosseguir?');
-      if (proceed) {
-        const scenesToRender = scenes.filter((scene: { numero: number | string }) => {
-          return !details.videos_cenas?.some(v => Number(v.numero_cena) === Number(scene.numero));
-        });
-
-        setAutomationState('waiting_scenes');
-        await renderAllScenes(id as string, scenesToRender, details.imagens, details.audios);
-        return;
-      }
-      return;
-    }
-
-    const urls = scenes
-      .map((scene: { numero: number }) => {
-        const v = details.videos_cenas?.find(vc => Number(vc.numero_cena) === Number(scene.numero));
-        return v?.video_url;
-      })
-      .filter(Boolean) as string[];
-    
-    if (urls.length === 0) {
-      alert('Nenhum fragmento de vídeo encontrado para compilar.');
-      return;
-    }
-    
-    const confirmCompile = confirm('Tudo pronto! Deseja iniciar a compilação do vídeo master final?');
-    if (!confirmCompile) return;
-
-    await compileFinalVideo(id as string, urls);
   };
 
   const handlePublish = async (id_conta?: string) => {
@@ -570,18 +453,9 @@ export default function TimelineEditorPage() {
           </button>
 
           <button 
-            onClick={handleRenderFinal}
-            disabled={isProcessing}
-            className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-500 border border-emerald-500/20 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-          >
-            {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-            Compilar
-          </button>
-
-          <button 
             onClick={async () => {
               if (!id) return;
-              const ok = confirm('Enviar para produção em segundo plano? O worker irá gerar imagens, narração e renderizar o vídeo automaticamente.');
+              const ok = confirm('Enviar para produção em segundo plano? O worker irá gerar imagens, narração e renderizar o vídeo automaticamente na nuvem.');
               if (!ok) return;
               try {
                 // Salva alterações antes de produzir
@@ -592,7 +466,7 @@ export default function TimelineEditorPage() {
                   body: JSON.stringify({ postId: id }),
                 });
                 if (!res.ok) throw new Error('Falha ao iniciar produção');
-                alert('✅ Produção iniciada em segundo plano! O vídeo será processado pelo worker.');
+                alert('✅ Produção iniciada em segundo plano! O vídeo será processado pelo worker. Você pode fechar esta página com segurança.');
               } catch (err) {
                 console.error(err);
                 alert('Erro ao iniciar produção em background.');
@@ -602,7 +476,7 @@ export default function TimelineEditorPage() {
             className="flex items-center gap-2 px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-orange-500/20 transition-all disabled:opacity-50"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            Produzir (Background)
+            Gerar Vídeo Completo (Nuvem)
           </button>
         </div>
       </header>

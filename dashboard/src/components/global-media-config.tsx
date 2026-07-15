@@ -24,7 +24,7 @@ export default function GlobalMediaConfig() {
     style: 0.15,
     use_speaker_boost: true,
     speed: 1.10,
-    voice_id: "Xb7hH8MSALEsuEVAig0v"
+    voice_id: "pNInz6obpgDQGcFmaJgB"
   };
   
   const voiceSettings = config.voice_settings || defaultVoiceSettings;

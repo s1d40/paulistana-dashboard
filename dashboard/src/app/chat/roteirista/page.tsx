@@ -5,11 +5,16 @@ import ChatPanel from '@/components/chat-panel';
 import { PenTool, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { usePresetStore } from '@/store/presetStore';
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 
 export default function RoteiristaChatPage() {
-  const { presets, activePresetId } = usePresetStore();
+  const { presets, activePresetId, initializePresets } = usePresetStore();
   
+  // Ensure presets are loaded from DB when accessing this page
+  useEffect(() => {
+    initializePresets();
+  }, [initializePresets]);
+
   const activePreset = useMemo(() => 
     presets.find(p => p.id === activePresetId), 
     [presets, activePresetId]

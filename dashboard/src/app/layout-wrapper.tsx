@@ -1,14 +1,13 @@
 'use client';
 
 import Sidebar from "@/components/sidebar";
+import StudioAssistant from "@/components/studio-assistant";
 import { useState, useEffect } from 'react';
 
-export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
-  const [pathname, setPathname] = useState('');
+import { usePathname } from 'next/navigation';
 
-  useEffect(() => {
-    setPathname(window.location.pathname);
-  }, []);
+export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() || '';
 
   const isPublicPage = pathname === '/' || pathname === '/login' || pathname === '/register';
 
@@ -18,6 +17,7 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
       <div className="flex flex-1 flex-col overflow-y-auto">
         {children}
       </div>
+      {!isPublicPage && <StudioAssistant />}
     </div>
   );
 }

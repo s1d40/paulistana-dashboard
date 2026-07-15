@@ -656,15 +656,15 @@ function ChatContent() {
         throw new Error('Tempo limite excedido aguardando o roteiro. Ele pode estar sendo gerado em segundo plano — verifique a biblioteca de conteúdo.');
       }
 
-      // 6. Garante que formato_video e com_legendas estejam no roteiro salvo
+      // 6. Garante que formato_video e com_legendas do UI sobreponham o que a IA gerou
       let roteiroObj = typeof roteiroPronto === 'string' ? JSON.parse(roteiroPronto) : roteiroPronto;
       let needsUpdate = false;
       
-      if (!roteiroObj.formato_video) {
+      if (roteiroObj.formato_video !== formatoVideo) {
         roteiroObj.formato_video = formatoVideo;
         needsUpdate = true;
       }
-      if (roteiroObj.com_legendas === undefined) {
+      if (roteiroObj.com_legendas !== comLegendas) {
         roteiroObj.com_legendas = comLegendas;
         needsUpdate = true;
       }

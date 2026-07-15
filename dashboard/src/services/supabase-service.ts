@@ -326,12 +326,11 @@ export async function fetchContentPresets(): Promise<Record<string, unknown>[]> 
   const { data, error } = await supabase
     .from('content_presets')
     .select('*')
-    .order('created_at', { ascending: true })
-    .not('id', 'is', null); // Dummy filter to bust cache
+    .order('created_at', { ascending: true });
 
   if (error) {
     console.error('Error fetching content presets:', error);
-    return [];
+    throw error;
   }
 
   return (data || []) as Record<string, unknown>[];

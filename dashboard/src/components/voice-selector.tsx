@@ -16,13 +16,13 @@ export default function VoiceSelector() {
   const { presets, activePresetId, updatePreset } = usePresetStore();
   const activePreset = presets.find(p => p.id === activePresetId);
   
-  const [localVoice, setLocalVoice] = useState(activePreset?.config?.voice_id || 'EXAVITQu4vr4xnSDxMaL');
+  const [localVoice, setLocalVoice] = useState(activePreset?.config?.voice_id || 'pNInz6obpgDQGcFmaJgB');
   const [localModel, setLocalModel] = useState(activePreset?.config?.voiceSettings?.model_id || 'eleven_multilingual_v2');
   const lastPresetIdRef = useRef(activePresetId);
 
   useEffect(() => {
     if (activePresetId !== lastPresetIdRef.current) {
-      setLocalVoice(activePreset?.config?.voice_id || 'EXAVITQu4vr4xnSDxMaL');
+      setLocalVoice(activePreset?.config?.voice_id || 'pNInz6obpgDQGcFmaJgB');
       setLocalModel(activePreset?.config?.voiceSettings?.model_id || 'eleven_multilingual_v2');
       lastPresetIdRef.current = activePresetId;
     }

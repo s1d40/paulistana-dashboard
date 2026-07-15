@@ -30,7 +30,7 @@ export async function POST(request: Request) {
 
     // --- ACTION: INIT_POST (Single Post Initialization) ---
     if (action === 'init_post') {
-      const { id_post, tema_post, titulo_post, roteiro_gerado, status, id_conta, production_list_id, captions, hashtags } = body;
+      const { id_post, tema_post, titulo_post, roteiro_gerado, status, id_conta, production_list_id, captions, hashtags, feedback } = body;
       
       if (!id_post) {
         return NextResponse.json({ error: 'id_post ausente.' }, { status: 400 });
@@ -47,7 +47,8 @@ export async function POST(request: Request) {
           status: status || 'Aguardando Revisão',
           images_status: 'Pendente',
           audio_status: 'Pendente',
-          video_status: 'Pendente'
+          video_status: 'Pendente',
+          feedback
         };
 
         // Só vincular id_conta se existir (evita FK violation)

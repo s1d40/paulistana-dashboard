@@ -446,13 +446,10 @@ def process_post(post):
                     print(f"-> ❌ Cena {cena['numero']} falhou após todos os retries: {exc}")
                     failed_scenes.append(cena['numero'])
         
-        # Evaluate: if too many scenes failed, abort
-        if len(failed_scenes) > 0 and len(failed_scenes) >= total_cenas * 0.5:
-            raise Exception(f"{len(failed_scenes)}/{total_cenas} cenas falharam: {failed_scenes}. Abortando.")
-        
+        # Evaluate: se QUALQUER cena falhar, aborta. Não podemos entregar vídeo incompleto.
         if len(failed_scenes) > 0:
-            print(f"-> ⚠️ {len(failed_scenes)} cena(s) falharam ({failed_scenes}), mas continuando com as {len(scene_outputs)} bem-sucedidas.")
-                    
+            raise Exception(f"{len(failed_scenes)}/{total_cenas} cenas falharam: {failed_scenes}. Abortando para garantir integridade do vídeo.")
+
         # Sort videos in correct scene order
         scene_videos = [scene_outputs[num] for num in sorted(scene_outputs.keys())]
         
@@ -521,13 +518,25 @@ def check_queue():
         remaining = MAX_POSTS_PER_CYCLE - len(posts)
         rescue_res = fresh_db.table("posts").select("*").eq("status", "Processando").not_.is_("roteiro_gerado", "null").order("data_criacao").limit(remaining).execute()
         rescued = rescue_res.data or []
-        # Filter out posts whose roteiro_gerado is just a placeholder
+        # Filter out posts whose roteiro_gerado is just a placeholder and ensure auto_produce is True
         for rp in rescued:
             roteiro = rp.get('roteiro_gerado', '')
             roteiro_str = str(roteiro)
-            if roteiro_str and 'Gerando...' not in roteiro_str and len(roteiro_str) > 100:
+            
+            feedback_data = rp.get('feedback', '{}')
+            try:
+                if isinstance(feedback_data, str):
+                    feedback_parsed = json.loads(feedback_data)
+                else:
+                    feedback_parsed = feedback_data or {}
+            except:
+                feedback_parsed = {}
+                
+            is_auto_produce = feedback_parsed.get('auto_produce', False)
+            
+            if is_auto_produce and roteiro_str and 'Gerando...' not in roteiro_str and len(roteiro_str) > 100:
                 posts.append(rp)
-                print(f"[{time.strftime('%H:%M:%S')}] 🔧 Resgatando post travado: {rp.get('tema_post', 'N/A')} ({rp['id_post'][:8]}...)")
+                print(f"[{time.strftime('%H:%M:%S')}] 🔧 Resgatando post de esteira background: {rp.get('tema_post', 'N/A')} ({rp['id_post'][:8]}...)")
     
     if not posts:
         return
