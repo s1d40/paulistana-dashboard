@@ -103,6 +103,7 @@ def run_animator():
             raise Exception("Arquivo de imagem, áudio ou json não encontrado na pasta /tmp/")
 
         ass_gerado = None
+        ass_path = None
         if not args.no_subtitles:
             ass_path = args.output_path.replace('.mp4', '.ass')
             ass_gerado = gerar_legenda_capcut(args.json_path, ass_path, resolution=args.format)
@@ -164,7 +165,7 @@ def run_animator():
         if proc.returncode != 0:
             raise Exception(f"FFmpeg Error:\n{proc.stderr}")
         
-        if os.path.exists(ass_path):
+        if ass_path and os.path.exists(ass_path):
             os.remove(ass_path)
             
         print(json.dumps({

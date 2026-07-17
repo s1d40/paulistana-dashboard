@@ -154,7 +154,7 @@ const fetchPosts = async (): Promise<ContentPost[]> => {
     throw new Error('Falha ao carregar conteúdo');
   }
   const data = await response.json();
-  return data.reverse();
+  return data;
 };
 
 function ConteudoContent() {

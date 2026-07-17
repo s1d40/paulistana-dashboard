@@ -472,8 +472,7 @@ export default function TimelineEditorPage() {
                 alert('Erro ao iniciar produção em background.');
               }
             }}
-            disabled={isProcessing}
-            className="flex items-center gap-2 px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-orange-500/20 transition-all disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-orange-500/20 transition-all"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
             Gerar Vídeo Completo (Nuvem)
