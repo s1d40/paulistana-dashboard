@@ -1,7 +1,7 @@
 'use client';
 
 import Sidebar from "@/components/sidebar";
-// import StudioAssistant from "@/components/studio-assistant";
+import StudioAssistant from "@/components/studio-assistant";
 import { useState, useEffect } from 'react';
 
 import { usePathname } from 'next/navigation';
@@ -17,7 +17,7 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
       <div className="flex flex-1 flex-col overflow-y-auto">
         {children}
       </div>
-      {/* {!isPublicPage && <StudioAssistant />} */}
+      {!isPublicPage && <StudioAssistant />}
     </div>
   );
 }
