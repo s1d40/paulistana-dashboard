@@ -101,17 +101,24 @@ def update_post_status(post_id: str, status: str, extra_fields: dict = None):
 # ============================================================================
 
 @retry_on_network_error(max_retries=3, base_delay=2)
-def generate_audio(text: str, voice_id="EXAVITQu4vr4xnSDxMaL"):
-    print(f"  [ElevenLabs] Gerando áudio: {text[:50]}...")
+def generate_audio(text: str, voice_id="EXAVITQu4vr4xnSDxMaL", model_id="eleven_multilingual_v2", voice_settings_override=None):
+    print(f"  [ElevenLabs] Gerando áudio: voice={voice_id}, model={model_id}")
+    print(f"  [ElevenLabs] Texto: {text[:50]}...")
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps"
     headers = {
         "Content-Type": "application/json",
         "xi-api-key": ELEVENLABS_API_KEY
     }
+    # Use override voice_settings if provided, otherwise defaults
+    vs = voice_settings_override if voice_settings_override else {"stability": 0.5, "similarity_boost": 0.75}
+    # Remove keys that are not actual ElevenLabs voice_settings params
+    el_voice_settings = {k: v for k, v in vs.items() if k in ('stability', 'similarity_boost', 'style', 'use_speaker_boost')}
+    if not el_voice_settings:
+        el_voice_settings = {"stability": 0.5, "similarity_boost": 0.75}
     data = {
         "text": text,
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+        "model_id": model_id,
+        "voice_settings": el_voice_settings
     }
     response = requests.post(url, json=data, headers=headers, timeout=90)
     if response.status_code != 200:
@@ -191,10 +198,21 @@ def generate_image(cena: dict, formato_video: str = "landscape"):
 
     print(f"  [Info] Replicate Model: {model_id} | Ref: {image_reference_url}")
 
-    output = replicate.run(
-        model_id,
-        input=input_replicate
-    )
+    try:
+        output = replicate.run(
+            model_id,
+            input=input_replicate
+        )
+    except Exception as e:
+        print(f"  [Replicate] Erro com o prompt original ({e}). Tentando fallback genérico de segurança...")
+        input_replicate['prompt'] = "beautiful cinematic background, abstract elegant lighting, premium feel, 4k"
+        if 'image_input' in input_replicate:
+            del input_replicate['image_input']
+            
+        output = replicate.run(
+            "black-forest-labs/flux-schnell",
+            input=input_replicate
+        )
     
     # Para o Nano Banana, a saída geralmente é um array com a URL
     img_url = output[0] if isinstance(output, list) else output
@@ -332,7 +350,9 @@ def process_scene(cena, post_id, voice_settings=None, formato_video="portrait", 
         urllib.request.urlretrieve(json_url, json_path)
     else:
         voice_id = voice_settings.get("voice_id", "EXAVITQu4vr4xnSDxMaL") if voice_settings else "EXAVITQu4vr4xnSDxMaL"
-        audio_path, json_path = generate_audio(cena['texto_narrado'], voice_id=voice_id)
+        model_id = voice_settings.get("model_id", "eleven_multilingual_v2") if voice_settings else "eleven_multilingual_v2"
+        print(f"  [Voice Config] voice_id={voice_id}, model_id={model_id}, settings={voice_settings}")
+        audio_path, json_path = generate_audio(cena['texto_narrado'], voice_id=voice_id, model_id=model_id, voice_settings_override=voice_settings)
         aud_url = upload_to_gcs(audio_path, post_id, f"audio_{num}.mp3")
         json_url = upload_to_gcs(json_path, post_id, f"legenda_{num}.json")
         
@@ -417,6 +437,20 @@ def process_post(post):
         if isinstance(roteiro, str):
             roteiro = json.loads(roteiro)
             
+        # Extract configurations from feedback column
+        feedback_data = post.get('feedback', '{}')
+        try:
+            if isinstance(feedback_data, str):
+                feedback_parsed = json.loads(feedback_data)
+            else:
+                feedback_parsed = feedback_data or {}
+        except Exception:
+            feedback_parsed = {}
+            
+        # Merge override settings from feedback
+        if feedback_parsed.get('voice_settings'):
+            roteiro['voice_settings'] = feedback_parsed['voice_settings']
+            
         formato_video = roteiro.get('formato_video', post.get('formato_video', 'landscape'))
         com_legendas = roteiro.get('com_legendas', post.get('com_legendas', False))
         print(f"  [Config] Formato: {formato_video} | Legendas: {'SIM' if com_legendas else 'NÃO'}")
@@ -457,9 +491,11 @@ def process_post(post):
                     print(f"-> ❌ Cena {cena['numero']} falhou após todos os retries: {exc}")
                     failed_scenes.append(cena['numero'])
         
-        # Evaluate: se QUALQUER cena falhar, aborta. Não podemos entregar vídeo incompleto.
-        if len(failed_scenes) > 0:
-            raise Exception(f"{len(failed_scenes)}/{total_cenas} cenas falharam: {failed_scenes}. Abortando para garantir integridade do vídeo.")
+        # Tolerância a falhas: se algumas cenas falharem, o vídeo ainda será montado com as cenas de sucesso.
+        if len(failed_scenes) == total_cenas:
+            raise Exception("Todas as cenas falharam. Impossível gerar o vídeo final.")
+        elif len(failed_scenes) > 0:
+            print(f"  [Aviso] {len(failed_scenes)} cenas falharam ({failed_scenes}) e serão ignoradas no vídeo final.")
 
         # Sort videos in correct scene order
         scene_videos = [scene_outputs[num] for num in sorted(scene_outputs.keys())]

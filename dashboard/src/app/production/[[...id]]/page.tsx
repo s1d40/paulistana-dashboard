@@ -10,7 +10,7 @@ import {
   Lock, Unlock, ChevronRight, ChevronDown, ChevronLeft, ShieldCheck,
   Music, Image as ImageIcon, Video, Maximize,
   Copy, Download, Share2, Calendar, ExternalLink,
-  Layers, Globe, CalendarDays, MoreHorizontal, Type, Smartphone, ListChecks, FolderKanban, Trash2, Edit3
+  Layers, Globe, CalendarDays, MoreHorizontal, Type, Smartphone, ListChecks, FolderKanban, Trash2, Edit3, Save
 } from 'lucide-react';
 import ChatPanel from '@/components/chat-panel';
 import ArchitectChat from '@/components/floating-architect-chat';
@@ -728,6 +728,41 @@ export default function ProductionStudioPage() {
       s.id === sessionId ? { ...s, isEditable: !s.isEditable } : s
     );
     updatePreset(activePreset.id, { sessions: newSessions });
+  };
+
+  // --- SAVE DRAFT AS PERMANENT PRESET ---
+  const handleSaveDraftAsPreset = async () => {
+    if (!activePreset) return;
+    const isDraft = (activePreset as any)?.config?.is_draft;
+    if (!isDraft) {
+      alert('Este preset já é permanente.');
+      return;
+    }
+    const newName = prompt('Nome para o novo Preset:', activePreset.name.replace(/^Draft: /, ''));
+    if (!newName) return;
+
+    try {
+      const newId = crypto.randomUUID();
+      const newConfig = { ...(activePreset as any).config };
+      delete newConfig.is_draft;
+
+      const { error } = await supabase
+        .from('content_presets')
+        .insert({
+          id: newId,
+          name: newName,
+          description: `Preset salvo a partir da esteira de produção`,
+          track: activePreset.type || 'general',
+          sessions: activePreset.sessions || [],
+          config: newConfig
+        });
+
+      if (error) throw error;
+      alert('✅ Preset salvo na Biblioteca com sucesso!');
+    } catch (err) {
+      console.error('Erro ao salvar preset:', err);
+      alert('Erro ao salvar preset.');
+    }
   };
 
   // --- SHARED ORCHESTRATION PIPELINE ---
@@ -1861,12 +1896,22 @@ export default function ProductionStudioPage() {
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block">Preset</label>
                     {activePresetId && (
-                      <button 
-                        onClick={() => setIsEditorModalOpen(true)}
-                        className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold uppercase hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
-                      >
-                        <Edit3 className="w-3 h-3" /> Editar Arquiteto
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button 
+                          onClick={() => setIsEditorModalOpen(true)}
+                          className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold uppercase hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                        >
+                          <Edit3 className="w-3 h-3" /> Editar
+                        </button>
+                        {(activePreset as any)?.config?.is_draft && (
+                          <button 
+                            onClick={handleSaveDraftAsPreset}
+                            className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-md text-[9px] font-bold uppercase hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+                          >
+                            <Save className="w-3 h-3" /> Salvar
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                   <PresetSelector />
@@ -2004,12 +2049,22 @@ export default function ProductionStudioPage() {
                      <div className="flex items-center justify-between">
                        <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block">Preset</label>
                        {activePresetId && (
-                         <button 
-                           onClick={() => setIsEditorModalOpen(true)}
-                           className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold uppercase hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
-                         >
-                           <Edit3 className="w-3 h-3" /> Editar Arquiteto
-                         </button>
+                         <div className="flex items-center gap-1.5">
+                           <button 
+                             onClick={() => setIsEditorModalOpen(true)}
+                             className="flex items-center gap-1.5 px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-md text-[9px] font-bold uppercase hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                           >
+                             <Edit3 className="w-3 h-3" /> Editar Arquiteto
+                           </button>
+                           {(activePreset as any)?.config?.is_draft && (
+                              <button 
+                                onClick={handleSaveDraftAsPreset}
+                                className="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-md text-[9px] font-bold uppercase hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+                              >
+                                <Save className="w-3 h-3" /> Salvar
+                              </button>
+                            )}
+                         </div>
                        )}
                      </div>
                      <PresetSelector />

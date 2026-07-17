@@ -54,17 +54,22 @@ export async function POST(request: Request) {
 
     let url: string;
     let method: string;
+    let body: Record<string, string> | undefined;
+
+    const igAccountId = account.conta_id_instagram;
 
     switch (action) {
       case 'like':
-        // POST /{comment-id}/likes
-        url = `${apiBase}/${commentId}/likes`;
+        // Instagram Graph API: POST /{ig-user-id}/likes with comment_id param
+        url = `${apiBase}/${igAccountId}/likes`;
         method = 'POST';
+        body = { comment_id: commentId };
         break;
       case 'unlike':
-        // DELETE /{comment-id}/likes
-        url = `${apiBase}/${commentId}/likes`;
+        // Instagram Graph API: DELETE /{ig-user-id}/likes with comment_id param
+        url = `${apiBase}/${igAccountId}/likes`;
         method = 'DELETE';
+        body = { comment_id: commentId };
         break;
       case 'delete':
         // DELETE /{comment-id}
@@ -84,7 +89,11 @@ export async function POST(request: Request) {
 
     const res = await fetch(url, {
       method,
-      headers: fetchHeaders,
+      headers: {
+        ...fetchHeaders,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
 
     const data = await res.json();

@@ -131,6 +131,14 @@ export default function ContasConfigPage() {
                          
             const isConnectedMeta = !!account.ig_access_token || !!account.facebook_access_token;
             
+            // Parse YouTube credentials
+            let ytInfo: { channel_name?: string; channel_id?: string; channel_thumbnail?: string } | null = null;
+            try {
+              if (account.yt_credencial) {
+                ytInfo = typeof account.yt_credencial === 'string' ? JSON.parse(account.yt_credencial) : account.yt_credencial;
+              }
+            } catch { /* ignore parse errors */ }
+            
             return (
               <div key={account.id_conta} className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-800 rounded-[2rem] p-8 hover:border-indigo-500/50 hover:shadow-[0_0_40px_-15px_rgba(99,102,241,0.3)] transition-all group relative overflow-hidden flex flex-col justify-between h-full min-h-[340px]">
                 
@@ -185,6 +193,21 @@ export default function ContasConfigPage() {
                         <span className="text-zinc-500 font-medium">Permissões</span>
                         <span className="text-zinc-300 font-bold">Leitura / Escrita</span>
                      </div>
+                     {/* YouTube Connection Status */}
+                     <div className="flex items-center justify-between text-xs p-3 bg-zinc-950/50 rounded-xl border border-zinc-800/80">
+                        <span className="text-zinc-500 font-medium flex items-center gap-1.5">
+                          <Video className="w-3 h-3 text-red-500" /> YouTube
+                        </span>
+                        {ytInfo?.channel_name ? (
+                          <span className="text-emerald-400 font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> {ytInfo.channel_name}
+                          </span>
+                        ) : (
+                          <a href={`/api/auth/google?conta_id=${account.id_conta}`} className="text-red-400 hover:text-red-300 font-bold transition-colors">
+                            Conectar →
+                          </a>
+                        )}
+                     </div>
                   </div>
                 </div>
 
@@ -194,6 +217,12 @@ export default function ContasConfigPage() {
                        <a href={`/api/auth/facebook?conta_id=${account.id_conta}`} className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-black uppercase tracking-widest rounded-xl transition-all shadow-sm flex items-center justify-center border border-zinc-700">
                           Atualizar Token (Reconectar)
                        </a>
+                       {!ytInfo?.channel_name && (
+                         <a href={`/api/auth/google?conta_id=${account.id_conta}`} className="w-full py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 border border-red-500/20 hover:border-red-500/40">
+                           <Video className="w-3 h-3" />
+                           Conectar YouTube
+                         </a>
+                       )}
                        <button 
                          onClick={() => handleRemove(account)}
                          disabled={removingId === account.id_conta}
@@ -240,6 +269,13 @@ export default function ContasConfigPage() {
               >
                 <Camera className="w-5 h-5" />
                 Conectar com Instagram
+              </a>
+              <a 
+                href="/api/auth/google" 
+                className="px-8 py-4 bg-[#FF0000] hover:bg-[#CC0000] text-white text-sm font-black uppercase tracking-widest rounded-2xl transition-all shadow-lg shadow-red-500/20 flex items-center gap-3 hover:scale-105 active:scale-95"
+              >
+                <Video className="w-5 h-5" />
+                Conectar com YouTube
               </a>
             </div>
           </section>

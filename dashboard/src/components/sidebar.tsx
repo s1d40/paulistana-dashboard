@@ -28,7 +28,7 @@ import { signOut } from 'next-auth/react';
 
 
 const mainNavigation = [
-  { name: 'Visão Geral', href: '/', icon: LayoutDashboard },
+  { name: 'Visão Geral', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Inteligência ML', href: '/mercado-livre', icon: TrendingUp },
   { name: 'Mural de Ideias', href: '/board', icon: KanbanSquare },
   { name: 'Cronograma', href: '/cronograma', icon: Calendar },
