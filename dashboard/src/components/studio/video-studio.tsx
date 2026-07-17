@@ -67,6 +67,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   const [isPlaying, setIsPlaying] = useState(true);
   const [videoProgress, setVideoProgress] = useState(0);
   
+  // State preservation refs for the video player
+  const prevVideoUrlRef = useRef<string | undefined>();
+  const savedCurrentTimeRef = useRef<number>(0);
+  const savedIsPlayingRef = useRef<boolean>(true);
+
   const { 
     progress, 
     generateSceneAssets, 
@@ -78,6 +83,84 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
   } = useProductionQueue();
 
   const currentScene = data.cenas[selectedSceneIdx];
+
+  // Asset Helpers
+  const getSceneImage = (numero: number) => {
+    const matches = imagens.filter(img => Number(img.numero_cena || (img as unknown as { numero: string | number }).numero) === Number(numero));
+    return matches.length > 0 ? matches[0] : undefined;
+  };
+
+  const getSceneAudio = (cena: VideoScene) => {
+    // Tenta primeiro pelo id_cena (mais seguro contra reindexação)
+    if (cena.id_cena) {
+      const byId = audios.find(aud => aud.id_cena === cena.id_cena);
+      if (byId) return byId;
+    }
+    // Fallback para numero_cena (assets antigos sem id_cena)
+    const matches = audios.filter(aud => Number(aud.numero_cena || (aud as unknown as { numero: string | number }).numero) === Number(cena.numero));
+    return matches.length > 0 ? matches[0] : undefined;
+  };
+
+  const getSceneVideo = (cena: VideoScene) => {
+    // Tenta primeiro pelo id_cena
+    if (cena.id_cena) {
+      const byId = videos_cenas.find(vid => vid.id_cena === cena.id_cena);
+      if (byId) return byId;
+    }
+    // Fallback para numero_cena
+    const matches = videos_cenas.filter(vid => Number(vid.numero_cena) === Number(cena.numero));
+    return matches.length > 0 ? matches[0] : undefined;
+  };
+
+  const currentVideo = currentScene ? getSceneVideo(currentScene) : undefined;
+
+  // Intercept video URL changes and preserve playhead state
+  useEffect(() => {
+    if (!mainVideoRef.current) return;
+
+    const currentUrl = currentVideo?.video_url ? `${currentVideo.video_url}?t=${new Date(currentVideo.data_geracao || 0).getTime()}` : undefined;
+    const prevUrl = prevVideoUrlRef.current;
+
+    if (currentUrl !== prevUrl) {
+      // If we already have a previous URL, it means the video re-rendered while we were watching
+      if (prevUrl) {
+        // Only restore if it's not a complete scene change (same base url roughly, or we just want to keep state in general)
+        // Wait for the new metadata to load, then apply the saved time and play state
+        const videoElement = mainVideoRef.current;
+        const handleLoadedMetadata = () => {
+          videoElement.currentTime = savedCurrentTimeRef.current;
+          if (savedIsPlayingRef.current) {
+            videoElement.play().catch(console.error);
+          }
+          videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        };
+        videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+      }
+      prevVideoUrlRef.current = currentUrl;
+    }
+  }, [currentVideo, selectedSceneIdx]);
+
+  // Track playback state in refs continuously
+  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement, Event>) => {
+    const video = e.currentTarget;
+    savedCurrentTimeRef.current = video.currentTime;
+    setVideoProgress((video.currentTime / video.duration) * 100);
+  };
+
+  const handlePlay = () => {
+    setIsPlaying(true);
+    savedIsPlayingRef.current = true;
+  };
+
+  const handlePause = () => {
+    setIsPlaying(false);
+    savedIsPlayingRef.current = false;
+  };
+
+  // Reset saved state when manually switching scenes
+  useEffect(() => {
+    savedCurrentTimeRef.current = 0;
+  }, [selectedSceneIdx]);
 
   // Initialize Replicate config and Voice Settings if missing
   useEffect(() => {
@@ -146,34 +229,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     };
     loadProducts();
   }, []);
-
-  // Asset Helpers
-  const getSceneImage = (numero: number) => {
-    const matches = imagens.filter(img => Number(img.numero_cena || (img as unknown as { numero: string | number }).numero) === Number(numero));
-    return matches.length > 0 ? matches[0] : undefined;
-  };
-  
-  const getSceneAudio = (cena: VideoScene) => {
-    // Tenta primeiro pelo id_cena (mais seguro contra reindexação)
-    if (cena.id_cena) {
-      const byId = audios.find(aud => aud.id_cena === cena.id_cena);
-      if (byId) return byId;
-    }
-    // Fallback para numero_cena (assets antigos sem id_cena)
-    const matches = audios.filter(aud => Number(aud.numero_cena || (aud as unknown as { numero: string | number }).numero) === Number(cena.numero));
-    return matches.length > 0 ? matches[0] : undefined;
-  };
-
-  const getSceneVideo = (cena: VideoScene) => {
-    // Tenta primeiro pelo id_cena
-    if (cena.id_cena) {
-      const byId = videos_cenas.find(vid => vid.id_cena === cena.id_cena);
-      if (byId) return byId;
-    }
-    // Fallback para numero_cena
-    const matches = videos_cenas.filter(vid => Number(vid.numero_cena) === Number(cena.numero));
-    return matches.length > 0 ? matches[0] : undefined;
-  };
 
   const handleDeleteSceneAssets = async () => {
     if (!postId || !currentScene) return;
@@ -332,7 +387,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
   const currentImage = getSceneImage(currentScene?.numero);
   const currentAudio = currentScene ? getSceneAudio(currentScene) : undefined;
-  const currentVideo = currentScene ? getSceneVideo(currentScene) : undefined;
 
   // Smart Outdated Asset Detection
   const isAudioOutdated = !!(currentAudio && currentScene && currentScene.texto_narrado !== currentAudio.texto_narrado);
@@ -707,14 +761,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
     }
   };
 
-  const togglePlay = () => {
-    if (mainVideoRef.current) {
-      if (isPlaying) mainVideoRef.current.pause();
-      else mainVideoRef.current.play();
-      setIsPlaying(!isPlaying);
-    }
-  };
-
   const updateScene = (idx: number, updates: Partial<VideoScene>) => {
     const newCenas = [...data.cenas];
     
@@ -817,25 +863,23 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                   <video 
                     ref={mainVideoRef}
                     src={finalVideo.video_final_url ? `${finalVideo.video_final_url}?t=${new Date(finalVideo.data_compilacao || 0).getTime()}` : undefined} 
-                    autoPlay 
                     controls
                     className="w-full h-full object-cover" 
-                    onTimeUpdate={(e) => setVideoProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
+                    onTimeUpdate={handleTimeUpdate}
                     onEnded={() => setIsPlaying(false)}
-                    onPlay={() => setIsPlaying(true)}
-                    onPause={() => setIsPlaying(false)}
+                    onPlay={handlePlay}
+                    onPause={handlePause}
                   />
                 ) : currentVideo?.video_url ? (
                   <video 
                     ref={mainVideoRef}
                     src={currentVideo.video_url ? `${currentVideo.video_url}?t=${new Date(currentVideo.data_geracao || 0).getTime()}` : undefined} 
-                    autoPlay 
                     controls
                     className="w-full h-full object-cover"
-                    onTimeUpdate={(e) => setVideoProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
+                    onTimeUpdate={handleTimeUpdate}
                     onEnded={() => setIsPlaying(false)}
-                    onPlay={() => setIsPlaying(true)}
-                    onPause={() => setIsPlaying(false)}
+                    onPlay={handlePlay}
+                    onPause={handlePause}
                   />
                 ) : currentImage?.image_url ? (
                   <div className="w-full h-full relative flex flex-col items-center justify-between">
@@ -849,10 +893,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                           src={currentAudio.audio_url} 
                           controls
                           className="w-full" 
-                          onTimeUpdate={(e) => setVideoProgress((e.currentTarget.currentTime / e.currentTarget.duration) * 100)}
+                          onTimeUpdate={handleTimeUpdate}
                           onEnded={() => setIsPlaying(false)}
-                          onPlay={() => setIsPlaying(true)}
-                          onPause={() => setIsPlaying(false)}
+                          onPlay={handlePlay}
+                          onPause={handlePause}
                         />
                       </div>
                     )}
@@ -1288,7 +1332,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
               <div 
                 ref={provided.innerRef}
                 {...provided.droppableProps}
-                className="flex-1 flex items-center px-6 gap-4 overflow-x-auto custom-scrollbar py-4 bg-[radial-gradient(circle_at_center,#111_0%,#000_100%)]"
+                className="flex-1 flex items-center px-6 gap-1 overflow-x-auto custom-scrollbar py-4 bg-[radial-gradient(circle_at_center,#111_0%,#000_100%)]"
               >
                  {data.cenas.map((cena, idx) => {
                    const isSelected = selectedSceneIdx === idx;
@@ -1304,15 +1348,15 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
                            {...provided.draggableProps}
                            {...provided.dragHandleProps}
                            className={clsx(
-                             "flex flex-col gap-2 shrink-0 group/scene transition-transform relative",
+                             "flex flex-col gap-1 shrink-0 group/scene transition-transform relative",
                              snapshot.isDragging && "scale-105 z-50 shadow-2xl"
                            )}
                            style={provided.draggableProps.style}
                          >
                             <div 
                               className={clsx(
-                                "w-48 h-28 rounded-2xl border-2 transition-all relative overflow-hidden",
-                                isSelected ? "border-indigo-500 shadow-[0_0_30px_rgba(99,102,241,0.2)] bg-zinc-900" : "border-zinc-800 bg-zinc-950 hover:border-zinc-700"
+                                "w-48 h-24 rounded-lg border-2 transition-all relative overflow-hidden",
+                                isSelected ? "border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.3)] bg-zinc-900 z-10" : "border-zinc-800 bg-zinc-950 hover:border-zinc-700"
                               )}
                             >
                               <button 
@@ -1363,8 +1407,23 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
                               {/* Processing Overlays */}
                               {progress[cena.numero]?.render === 'processing' && (
-                                <div className="absolute inset-0 bg-indigo-600/40 backdrop-blur-[2px] flex items-center justify-center z-30">
-                                  <RefreshCw className="w-6 h-6 text-white animate-spin" />
+                                <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-[2px] flex items-center justify-center z-30 overflow-hidden">
+                                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite]" />
+                                  <div className="flex flex-col items-center gap-2">
+                                    <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin" />
+                                    <span className="text-[8px] font-black uppercase text-indigo-300 tracking-widest bg-black/40 px-2 py-0.5 rounded-full backdrop-blur-sm">Processando</span>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Image Processing Overlay */}
+                              {progress[cena.numero]?.image === 'processing' && (
+                                <div className="absolute inset-0 bg-zinc-900/80 backdrop-blur-[2px] flex items-center justify-center z-30 overflow-hidden">
+                                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-amber-500/20 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite]" />
+                                  <div className="flex flex-col items-center gap-2">
+                                    <ImageIcon className="w-5 h-5 text-amber-400 animate-pulse" />
+                                    <span className="text-[8px] font-black uppercase text-amber-300 tracking-widest bg-black/40 px-2 py-0.5 rounded-full backdrop-blur-sm">Gerando Imagem</span>
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -1391,41 +1450,41 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({
 
                             {/* Audio Status Bar / Tiny Player */}
                             <div className={clsx(
-                              "w-48 rounded-xl border flex flex-col p-2 gap-2 transition-all",
-                              isSelected ? "bg-indigo-500/10 border-indigo-500/30" : "bg-zinc-900/50 border-zinc-800"
+                              "w-48 h-10 rounded-lg border flex flex-col justify-center px-2 py-1 gap-1 transition-all overflow-hidden",
+                              isSelected ? "bg-indigo-500/20 border-indigo-500/40" : "bg-zinc-800/80 border-zinc-700"
                             )}>
-                              <div className="flex items-center gap-2">
-                                <Music className={clsx("w-2.5 h-2.5", sceneAud ? "text-indigo-400" : "text-zinc-700")} />
-                                <div className="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden">
-                                  <div className={clsx(
-                                    "h-full transition-all duration-1000",
-                                    sceneAud ? "w-full bg-indigo-500" : progress[cena.numero]?.audio === 'processing' ? "w-1/2 bg-amber-500 animate-pulse" : "w-0"
-                                  )} />
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <Music className={clsx("w-3 h-3 shrink-0", sceneAud ? "text-indigo-400" : "text-zinc-600")} />
+                                  <span className="text-[8px] font-bold text-zinc-400 truncate w-full uppercase tracking-tight">
+                                    {sceneAud ? "Áudio Finalizado" : progress[cena.numero]?.audio === 'processing' ? "Gerando..." : "Sem Áudio"}
+                                  </span>
                                 </div>
                                 {sceneAud && (
-                                  <div className="text-[7px] font-black text-zinc-500 uppercase tracking-tighter">OK</div>
-                                )}
-                              </div>
-                              
-                              {sceneAud && (
-                                <div className="flex items-center gap-2">
                                   <button 
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       const audio = document.getElementById(`audio-${cena.numero}`) as HTMLAudioElement;
                                       if (audio.paused) audio.play(); else audio.pause();
                                     }}
-                                    className="p-1 bg-zinc-800 hover:bg-zinc-700 rounded-md"
+                                    className="p-1 bg-indigo-500/20 hover:bg-indigo-500/40 rounded shadow-sm transition-colors"
                                   >
-                                    <Play className="w-2.5 h-2.5 text-zinc-400" />
+                                    <Play className="w-2.5 h-2.5 text-indigo-300" />
                                   </button>
-                                  <audio 
-                                    id={`audio-${cena.numero}`} 
-                                    src={sceneAud.audio_url} 
-                                    className="h-4 w-full opacity-50 hover:opacity-100 transition-opacity" 
-                                    controls 
-                                  />
-                                </div>
+                                )}
+                              </div>
+                              <div className="w-full h-1 bg-zinc-900 rounded-full overflow-hidden mt-0.5">
+                                <div className={clsx(
+                                  "h-full transition-all duration-1000",
+                                  sceneAud ? "w-full bg-indigo-500" : progress[cena.numero]?.audio === 'processing' ? "w-1/2 bg-amber-500 animate-pulse" : "w-0"
+                                )} />
+                              </div>
+                              {sceneAud && (
+                                <audio
+                                  id={`audio-${cena.numero}`}
+                                  src={sceneAud.audio_url}
+                                  className="hidden"
+                                />
                               )}
                             </div>
                          </div>
