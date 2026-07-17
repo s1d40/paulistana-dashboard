@@ -638,6 +638,21 @@ export default function ProductionStudioPage() {
     };
   }, [fetchUpdatedState]); // Canal é recriado de forma segura apenas se o callback mudar (o que não acontece pois está memoizado)
 
+  // --- POLLING FALLBACK (garante atualização mesmo se Realtime falhar) ---
+  useEffect(() => {
+    const hasProcessing = productionItems.some(item => 
+      item.status === 'Processando' || processingItems.has(item.uuid)
+    );
+    
+    if (!hasProcessing || productionItems.length === 0) return;
+    
+    const interval = setInterval(() => {
+      fetchUpdatedState();
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [productionItems, processingItems, fetchUpdatedState]);
+
   const handleSandboxToolSuccess = async (toolName: string) => {
     if (toolName !== 'save_single_script' || !currentSandboxProduct || !currentSandboxUuid) return;
 
