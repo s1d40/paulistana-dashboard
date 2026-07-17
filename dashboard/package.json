@@ -15,10 +15,12 @@
     "@google-cloud/storage": "^7.19.0",
     "@hello-pangea/dnd": "^18.0.1",
     "@pinecone-database/pinecone": "^7.2.0",
+    "@resvg/resvg-js": "^2.6.2",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
     "@tanstack/react-query": "^5.100.9",
     "ai": "^6.0.175",
+    "axios": "^1.18.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
     "echarts": "^6.0.0",
@@ -40,7 +42,9 @@
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "remark-gfm": "^4.0.1",
+    "satori": "^0.26.0",
     "tailwind-merge": "^3.5.0",
+    "zod": "^4.4.3",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
