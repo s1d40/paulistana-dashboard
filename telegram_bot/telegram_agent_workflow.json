@@ -1,0 +1,493 @@
+{
+  "name": "Telegram Bot Agent: Cocreator Studio",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "webhookId": "bot_webhook_id_placeholder",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram_credentials_id",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.message.text }}",
+        "options": {
+          "systemMessage": "Você é o assistente inteligente da Cocreator Content Studio via Telegram. Seu objetivo é ajudar o usuário com a produção em massa, idealização, e a interagir com a plataforma.\n\nSempre verifique se o usuário está autenticado antes de executar ações de produção. A primeira coisa é pedir para o usuário fazer login. Use a ferramenta `Auth_Login` caso não haja uma sessão ativa detectada, pedindo o email e senha do usuário.\n\nDepois do login, você pode ajudar com:\n- Idealização do Sistema com o Arquiteto (ferramenta `Idealize_System_Message`)\n- Idealização de Listas de Vídeo (ferramenta `Idealize_Video_List`)\n- Produção de um único vídeo (ferramenta `Produce_Single_Video`)\n- Produção de vídeos em massa (ferramenta `Produce_Mass_Videos`)\n\nResponda em Português do Brasil de forma amigável e profissional."
+        }
+      },
+      "id": "ai-agent",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "options": {}
+      },
+      "id": "openai-model",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        500,
+        500
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai_cred_id",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionKey": "={{ $('Telegram Trigger').first().json.message.chat.id }}"
+      },
+      "id": "window-buffer-memory",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [
+        650,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "name": "Auth_Login",
+        "description": "Faz o login do usuário baseado no email e senha e utiliza a API do Supabase para verificar a senha com segurança.",
+        "schema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"email\": {\n      \"type\": \"string\",\n      \"description\": \"O email da conta do usuário no Cocreator\"\n    },\n    \"password\": {\n      \"type\": \"string\",\n      \"description\": \"A senha do usuário no Cocreator\"\n    }\n  },\n  \"required\": [\"email\", \"password\"]\n}"
+      },
+      "id": "tool-auth",
+      "name": "Tool: Login",
+      "type": "@n8n/n8n-nodes-langchain.toolCustom",
+      "typeVersion": 1,
+      "position": [
+        800,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env['SUPABASE_URL'] }}/auth/v1/token?grant_type=password",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env['SUPABASE_ANON_KEY'] }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "email",
+              "value": "={{ $json.email }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $json.password }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http-supabase-auth",
+      "name": "HTTP Request: Supabase Auth",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1000,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT client_id FROM public.user_clients WHERE user_id = $1 LIMIT 1;",
+        "options": {
+          "queryParameters": "={{ $json.user.id }}"
+        }
+      },
+      "id": "postgres-get-client-id",
+      "name": "Postgres: Get Client ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1200,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase_cred_id",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.telegram_identities (telegram_chat_id, user_id, client_id) VALUES ($1, $2, $3) ON CONFLICT (telegram_chat_id) DO UPDATE SET user_id = $2, client_id = $3;",
+        "options": {
+          "queryParameters": "={{ $('Telegram Trigger').first().json.message.chat.id }},{{ $('HTTP Request: Supabase Auth').first().json.user.id }},{{ $json.client_id }}"
+        }
+      },
+      "id": "postgres-insert-identity",
+      "name": "Postgres: Link Account",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1400,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase_cred_id",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "Produce_Mass_Videos",
+        "description": "Aciona a esteira de produção para vários vídeos.",
+        "schema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"quantidade\": {\n      \"type\": \"number\",\n      \"description\": \"Quantidade de vídeos a serem produzidos\"\n    },\n    \"tema_geral\": {\n      \"type\": \"string\",\n      \"description\": \"O tema geral para a massa de vídeos\"\n    }\n  },\n  \"required\": [\"quantidade\", \"tema_geral\"]\n}"
+      },
+      "id": "tool-mass-production",
+      "name": "Tool: Mass Production",
+      "type": "@n8n/n8n-nodes-langchain.toolCustom",
+      "typeVersion": 1,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.mural_ideias (client_id, conteudo, status, metadata) VALUES ((SELECT client_id FROM public.telegram_identities WHERE telegram_chat_id = $1), $2, 'ideia', '{\"source\": \"telegram_bot\", \"type\": \"mass_production\"}');",
+        "options": {
+          "queryParameters": "={{ $('Telegram Trigger').first().json.message.chat.id }},{{ $json.tema_geral }} (Massa: {{ $json.quantidade }})"
+        }
+      },
+      "id": "postgres-mass-production",
+      "name": "Postgres: Insert Mass Production",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1000,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase_cred_id",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "Produce_Single_Video",
+        "description": "Aciona a produção de um vídeo específico.",
+        "schema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"topic\": {\n      \"type\": \"string\",\n      \"description\": \"O tema principal do vídeo\"\n    },\n    \"duration\": {\n      \"type\": \"number\",\n      \"description\": \"A duração desejada em segundos\"\n    }\n  },\n  \"required\": [\"topic\", \"duration\"]\n}"
+      },
+      "id": "tool-single-production",
+      "name": "Tool: Single Production",
+      "type": "@n8n/n8n-nodes-langchain.toolCustom",
+      "typeVersion": 1,
+      "position": [
+        800,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.mural_ideias (client_id, conteudo, status, metadata) VALUES ((SELECT client_id FROM public.telegram_identities WHERE telegram_chat_id = $1), $2, 'ideia', jsonb_build_object('source', 'telegram_bot', 'type', 'single_production', 'duration', $3::numeric));",
+        "options": {
+           "queryParameters": "={{ $('Telegram Trigger').first().json.message.chat.id }},{{ $json.topic }},{{ $json.duration }}"
+        }
+      },
+      "id": "postgres-single-production",
+      "name": "Postgres: Insert Single Production",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1000,
+        500
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase_cred_id",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "Idealize_System_Message",
+        "description": "Permite interagir com o arquiteto para idealizar mensagens do sistema.",
+        "schema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"ideia\": {\n      \"type\": \"string\",\n      \"description\": \"A ideia do usuário para criar a mensagem de sistema\"\n    }\n  },\n  \"required\": [\"ideia\"]\n}"
+      },
+      "id": "tool-idealize",
+      "name": "Tool: Idealize System Message",
+      "type": "@n8n/n8n-nodes-langchain.toolCustom",
+      "typeVersion": 1,
+      "position": [
+        800,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.mural_ideias (client_id, conteudo, status, metadata) VALUES ((SELECT client_id FROM public.telegram_identities WHERE telegram_chat_id = $1), $2, 'ideia', '{\"source\": \"telegram_bot\", \"type\": \"idealize_system_message\"}');",
+        "options": {
+          "queryParameters": "={{ $('Telegram Trigger').first().json.message.chat.id }},{{ $json.ideia }}"
+        }
+      },
+      "id": "postgres-idealize",
+      "name": "Postgres: Insert Idealize",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1000,
+        700
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase_cred_id",
+          "name": "Supabase Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "Idealize_Video_List",
+        "description": "Permite criar e organizar listas de ideias para vídeos.",
+        "schema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"contexto\": {\n      \"type\": \"string\",\n      \"description\": \"Contexto, nicho ou tema geral das ideias de vídeos para a lista\"\n    }\n  },\n  \"required\": [\"contexto\"]\n}"
+      },
+      "id": "tool-idealize-list",
+      "name": "Tool: Idealize Video List",
+      "type": "@n8n/n8n-nodes-langchain.toolCustom",
+      "typeVersion": 1,
+      "position": [
+        800,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO public.mural_ideias (client_id, conteudo, status, metadata) VALUES ((SELECT client_id FROM public.telegram_identities WHERE telegram_chat_id = $1), $2, 'ideia', '{\"source\": \"telegram_bot\", \"type\": \"idealize_video_list\"}');",
+        "options": {
+          "queryParameters": "={{ $('Telegram Trigger').first().json.message.chat.id }},{{ $json.contexto }}"
+        }
+      },
+      "id": "postgres-idealize-list",
+      "name": "Postgres: Insert Video List",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1000,
+        900
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "supabase_cred_id",
+          "name": "Supabase Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Login": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request: Supabase Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request: Supabase Auth": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Get Client ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Get Client ID": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Link Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Mass Production": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Insert Mass Production",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Single Production": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Insert Single Production",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Idealize System Message": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Insert Idealize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Idealize Video List": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Insert Video List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
