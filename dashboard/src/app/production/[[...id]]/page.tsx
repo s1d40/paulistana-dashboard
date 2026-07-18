@@ -271,9 +271,15 @@ export default function ProductionStudioPage() {
         })
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || 'Erro desconhecido');
+      }
+
+      // Check for per-platform errors in the response
+      if (data.errors && data.errors.length > 0) {
+        throw new Error(data.errors.join('; '));
       }
 
       setPublishingStatus(prev => ({
@@ -320,20 +326,35 @@ export default function ProductionStudioPage() {
         })
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data.error || 'Erro desconhecido');
+      }
+
+      // Set per-platform status based on errors reported by the API
+      const errorPlatforms = new Set<string>();
+      if (data.errors) {
+        for (const errMsg of data.errors) {
+          if (errMsg.toLowerCase().includes('instagram')) errorPlatforms.add('instagram');
+          if (errMsg.toLowerCase().includes('youtube')) errorPlatforms.add('youtube');
+          if (errMsg.toLowerCase().includes('facebook')) errorPlatforms.add('facebook');
+        }
       }
 
       setPublishingStatus(prev => ({
         ...prev,
         [postId]: {
-          instagram: 'published',
-          youtube: 'published',
-          facebook: 'published',
-          all: 'published'
+          instagram: errorPlatforms.has('instagram') ? 'error' : 'published',
+          youtube: errorPlatforms.has('youtube') ? 'error' : 'published',
+          facebook: errorPlatforms.has('facebook') ? 'error' : 'published',
+          all: errorPlatforms.size > 0 ? 'error' : 'published'
         }
       }));
+
+      if (errorPlatforms.size > 0) {
+        alert(`Publicação parcial. Erros em: ${data.errors.join('; ')}`);
+      }
     } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
       console.error('Erro ao publicar em todos:', err);
       setPublishingStatus(prev => ({
