@@ -42,16 +42,29 @@ export async function POST(request: Request) {
       throw new Error(`Post não encontrado: ${postError?.message}`);
     }
 
-    // 2. Buscar URL do vídeo final
-    const { data: video, error: videoError } = await supabase
-      .from('production_batches')
+    // 2. Buscar URL do vídeo final (tabela 'videos' primeiro, fallback para 'production_batches')
+    const { data: video } = await supabase
+      .from('videos')
       .select('video_final_url')
       .eq('id_post', id_post)
-      .order('created_at', { ascending: false })
+      .order('data_compilacao', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (videoError || !video?.video_final_url) {
+    let videoFinalUrl = video?.video_final_url;
+
+    if (!videoFinalUrl) {
+      const { data: batch } = await supabase
+        .from('production_batches')
+        .select('video_final_url')
+        .eq('id_post', id_post)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      videoFinalUrl = batch?.video_final_url;
+    }
+
+    if (!videoFinalUrl) {
       throw new Error('Vídeo final não encontrado. O vídeo precisa ser renderizado primeiro.');
     }
 
@@ -119,8 +132,8 @@ export async function POST(request: Request) {
     }
 
     // 5. Download do vídeo
-    console.log(`[YT Publish] Baixando vídeo: ${video.video_final_url}`);
-    const videoRes = await fetch(video.video_final_url);
+    console.log(`[YT Publish] Baixando vídeo: ${videoFinalUrl}`);
+    const videoRes = await fetch(videoFinalUrl);
 
     if (!videoRes.ok) {
       throw new Error(`Falha ao baixar vídeo: HTTP ${videoRes.status}`);
