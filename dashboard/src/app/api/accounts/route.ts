@@ -26,7 +26,7 @@ export async function GET() {
     if (isTeamMember) {
       const { data, error } = await supabaseAdmin
         .from('contas')
-        .select('id_conta, id_cliente, nicho, nome_conta, conta_id_instagram, conta_id_facebook, conta_id_threads, ig_access_token, facebook_access_token');
+        .select('id_conta, id_cliente, nicho, nome_conta, conta_id_instagram, conta_id_facebook, conta_id_threads, ig_access_token, facebook_access_token, yt_credencial');
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
@@ -69,7 +69,7 @@ export async function GET() {
 
     const { data, error } = await supabaseAdmin
       .from('contas')
-      .select('id_conta, id_cliente, nicho, nome_conta, conta_id_instagram, conta_id_facebook, conta_id_threads, ig_access_token, facebook_access_token')
+      .select('id_conta, id_cliente, nicho, nome_conta, conta_id_instagram, conta_id_facebook, conta_id_threads, ig_access_token, facebook_access_token, yt_credencial')
       .eq('id_cliente', clienteFilter);
 
     if (error) {
