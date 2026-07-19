@@ -7,6 +7,26 @@
   --foreground: #171717;
 }
 
+.ecommerce-theme {
+  /* Default Dark Theme: Código dos Signos */
+  --ecommerce-bg: #0B0E14;        /* Deep night blue background */
+  --ecommerce-card: #151A23;      /* Slightly lighter blue for cards */
+  --ecommerce-border: #232B3A;    /* Border color */
+  --ecommerce-text: #F8FAFC;      /* White text */
+  --ecommerce-muted: #94A3B8;     /* Slate-400 for muted text */
+  --ecommerce-accent: #D4AF37;    /* Antique gold */
+}
+
+/* Example of how another theme could be applied dynamically */
+.ecommerce-theme-light {
+  --ecommerce-bg: #FFFFFF;
+  --ecommerce-card: #F8FAFC;
+  --ecommerce-border: #E2E8F0;
+  --ecommerce-text: #0F172A;
+  --ecommerce-muted: #64748B;
+  --ecommerce-accent: #3B82F6;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

@@ -9,6 +9,16 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      colors: {
+        ecommerce: {
+          bg: 'var(--ecommerce-bg)',
+          card: 'var(--ecommerce-card)',
+          border: 'var(--ecommerce-border)',
+          text: 'var(--ecommerce-text)',
+          muted: 'var(--ecommerce-muted)',
+          accent: 'var(--ecommerce-accent)',
+        }
+      },
       animation: {
         'shimmer': 'shimmer 1.5s infinite',
       },
