@@ -585,6 +585,26 @@ def check_queue():
                 posts.append(rp)
                 print(f"[{time.strftime('%H:%M:%S')}] 🔧 Resgatando post de esteira background: {rp.get('tema_post', 'N/A')} ({rp['id_post'][:8]}...)")
     
+    # Fallback 2: rescue posts stuck in 'Aguardando Revisão' with auto_produce=true
+    # This covers the case where n8n's roteirista workflow sets "Aguardando Revisão" instead of "Produzir"
+    if len(posts) < MAX_POSTS_PER_CYCLE:
+        remaining = MAX_POSTS_PER_CYCLE - len(posts)
+        review_res = fresh_db.table("posts").select("*").eq("status", "Aguardando Revisão").not_.is_("roteiro_gerado", "null").order("data_criacao").limit(remaining).execute()
+        for rp in (review_res.data or []):
+            roteiro_str = str(rp.get('roteiro_gerado', ''))
+            feedback_data = rp.get('feedback', '{}')
+            try:
+                feedback_parsed = json.loads(feedback_data) if isinstance(feedback_data, str) else (feedback_data or {})
+            except:
+                feedback_parsed = {}
+            is_auto_produce = feedback_parsed.get('auto_produce', False)
+            if is_auto_produce and roteiro_str and 'Gerando...' not in roteiro_str and len(roteiro_str) > 100:
+                # Promote to "Produzir" so the atomic lock below works correctly
+                fresh_db.table("posts").update({"status": "Produzir"}).eq("id_post", rp['id_post']).eq("status", "Aguardando Revisão").execute()
+                rp['status'] = 'Produzir'  # Update in-memory so the lock logic matches
+                posts.append(rp)
+                print(f"[{time.strftime('%H:%M:%S')}] 🔄 Resgatando post 'Aguardando Revisão' com auto_produce: {rp.get('tema_post', 'N/A')} ({rp['id_post'][:8]}...)")
+    
     if not posts:
         return
     

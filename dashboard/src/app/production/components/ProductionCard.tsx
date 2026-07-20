@@ -47,6 +47,7 @@ interface ProductionCardProps {
   setCardTab: (tab: 'video' | 'caption' | 'publish' | 'schedule') => void;
   progress: number;
   publishingStatus: Record<string, any>;
+  accountName?: string;
   onDiscard: (uuid: string) => void;
   onGenerateAll: (item: ProductionItem) => void;
   onGenerateScript: (item: ProductionItem) => void;
@@ -63,7 +64,7 @@ interface ProductionCardProps {
 }
 
 export default function ProductionCard({
-  item, activeTab, setCardTab, progress, publishingStatus,
+  item, activeTab, setCardTab, progress, publishingStatus, accountName,
   onDiscard, onGenerateAll, onGenerateScript, onGenerateImages,
   onGenerateAudios, onGenerateVideo, onUpdateState, onDownload,
   onCopyText, onPublishPlatform, onPublishAll, onSchedule, activeImageModel
@@ -101,9 +102,16 @@ export default function ProductionCard({
                   item.status === 'Pronto' ? <CheckCircle2 className="w-6 h-6" /> : <Package className="w-6 h-6" />
                 )}
              </div>
-             <div>
-               <h4 className="text-sm font-black text-zinc-900 dark:text-white uppercase tracking-tight leading-none mb-1">{item.produto}</h4>
-               <p className="text-[10px] font-mono text-zinc-400 tracking-wider">ID: {item.uuid.substring(0,12)}</p>
+             <div className="min-w-0">
+               <h4 className="text-sm font-black text-zinc-900 dark:text-white uppercase tracking-tight leading-none mb-1 line-clamp-2">{item.produto}</h4>
+               <div className="flex items-center gap-2 mt-0.5">
+                 <p className="text-[10px] font-mono text-zinc-400 tracking-wider">ID: {item.uuid.substring(0,12)}</p>
+                 {accountName && (
+                   <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 dark:text-indigo-400 truncate max-w-[120px]">
+                     {accountName}
+                   </span>
+                 )}
+               </div>
              </div>
           </div>
           
@@ -146,12 +154,12 @@ export default function ProductionCard({
                 <span className="text-[9px] font-black uppercase text-zinc-400">{progress}% Completo</span>
              </div>
 
-             <div className="grid grid-cols-2 gap-2">
+             <div className="space-y-2">
                 <button 
                   onClick={() => onGenerateAll(item)}
                   disabled={item.status === 'Processando'}
                   className={clsx(
-                    "col-span-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2",
+                    "w-full py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2",
                     item.status === 'Processando' ? "bg-zinc-200 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed" : 
                     item.status === 'Erro' ? "bg-red-500/10 border border-red-500/30 text-red-500 hover:bg-red-500/20" :
                     "bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white hover:scale-[1.02]"
@@ -170,7 +178,7 @@ export default function ProductionCard({
                      href={`/conteudo/editor/${item.uuid}`}
                      target="_blank"
                      rel="noopener noreferrer"
-                     className="col-span-2 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-indigo-500/20 hover:border-indigo-500/50 text-indigo-500 dark:text-indigo-400 flex items-center justify-center gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+                     className="w-full py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-indigo-500/20 hover:border-indigo-500/50 text-indigo-500 dark:text-indigo-400 flex items-center justify-center gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
                   >
                      <ExternalLink className="w-3 h-3" /> Abrir no Estúdio
                   </a>
@@ -178,7 +186,7 @@ export default function ProductionCard({
                   <button 
                     onClick={() => onGenerateScript(item)}
                     disabled={item.scriptGeneratingStatus === 'generating'}
-                    className="col-span-2 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-zinc-500/20 hover:border-zinc-500/50 text-zinc-600 dark:text-zinc-400 flex items-center justify-center gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
+                    className="w-full py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all border border-zinc-500/20 hover:border-zinc-500/50 text-zinc-600 dark:text-zinc-400 flex items-center justify-center gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
                   >
                     {item.scriptGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <PenTool className="w-3 h-3" />} Gerar Roteiro
                   </button>
@@ -257,18 +265,18 @@ export default function ProductionCard({
                         value={item.customPrompt || ''}
                         onChange={e => onUpdateState(item.uuid, { customPrompt: e.target.value })}
                       />
-                      <div className="grid grid-cols-2 gap-2">
-                         <button onClick={() => onGenerateScript(item)} disabled={item.scriptGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
-                           {item.scriptGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <PenTool className="w-3 h-3" />} Roteiro
+                      <div className="grid grid-cols-4 gap-1.5">
+                         <button onClick={() => onGenerateScript(item)} disabled={item.scriptGeneratingStatus === 'generating'} className="py-1.5 rounded-lg text-[8px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
+                           {item.scriptGeneratingStatus === 'generating' ? <Loader2 className="w-2.5 h-2.5 animate-spin"/> : <PenTool className="w-2.5 h-2.5" />} Roteiro
                          </button>
-                         <button onClick={() => onGenerateImages(item)} disabled={!item.hasScript || item.imagesGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
-                           {item.imagesGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <ImageIcon className="w-3 h-3" />} Imagens
+                         <button onClick={() => onGenerateImages(item)} disabled={!item.hasScript || item.imagesGeneratingStatus === 'generating'} className="py-1.5 rounded-lg text-[8px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
+                           {item.imagesGeneratingStatus === 'generating' ? <Loader2 className="w-2.5 h-2.5 animate-spin"/> : <ImageIcon className="w-2.5 h-2.5" />} Imagens
                          </button>
-                         <button onClick={() => onGenerateAudios(item)} disabled={!item.hasScript || item.audiosGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
-                           {item.audiosGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Music className="w-3 h-3" />} Áudios
+                         <button onClick={() => onGenerateAudios(item)} disabled={!item.hasScript || item.audiosGeneratingStatus === 'generating'} className="py-1.5 rounded-lg text-[8px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
+                           {item.audiosGeneratingStatus === 'generating' ? <Loader2 className="w-2.5 h-2.5 animate-spin"/> : <Music className="w-2.5 h-2.5" />} Áudios
                          </button>
-                         <button onClick={() => onGenerateVideo(item)} disabled={!item.hasScript || item.videoGeneratingStatus === 'generating'} className="py-2 rounded-lg text-[9px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
-                           {item.videoGeneratingStatus === 'generating' ? <Loader2 className="w-3 h-3 animate-spin"/> : <Video className="w-3 h-3" />} Vídeo
+                         <button onClick={() => onGenerateVideo(item)} disabled={!item.hasScript || item.videoGeneratingStatus === 'generating'} className="py-1.5 rounded-lg text-[8px] font-bold uppercase tracking-wider border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-300 hover:border-indigo-400 disabled:opacity-50 flex items-center justify-center gap-1">
+                           {item.videoGeneratingStatus === 'generating' ? <Loader2 className="w-2.5 h-2.5 animate-spin"/> : <Video className="w-2.5 h-2.5" />} Vídeo
                          </button>
                       </div>
                    </div>

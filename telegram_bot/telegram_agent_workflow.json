@@ -1,0 +1,235 @@
+{
+  "name": "Telegram Bot Agent: Cocreator Studio",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "webhookId": "cocreator-telegram-bot-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "5qMg3Grxg93OKPbn",
+          "name": "Telegram account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Chat ID do usuário: {{ $json.message.chat.id }}\nNome do usuário: {{ $json.message.from.first_name }}\n\nMensagem: {{ $json.message.text }}",
+        "options": {
+          "systemMessage": "Você é o assistente inteligente da Cocreator Content Studio via Telegram. Seu objetivo é ajudar o usuário com a produção em massa, idealização, e a interagir com a plataforma.\n\nIMPORTANTE: O Chat ID do Telegram do usuário é fornecido no início de cada mensagem. Quando usar a ferramenta Auth_Login, você DEVE incluir esse chat_id junto com email e senha.\n\nSempre verifique se o usuário está autenticado antes de executar ações de produção. A primeira coisa é pedir para o usuário fazer login. Use a ferramenta Auth_Login caso não haja uma sessão ativa detectada, pedindo o email e senha do usuário.\n\nDepois do login, você pode ajudar com:\n- Idealização do Sistema com o Arquiteto (ferramenta Idealize_System_Message)\n- Idealização de Listas de Vídeo (ferramenta Idealize_Video_List)\n- Produção de um único vídeo (ferramenta Produce_Single_Video)\n- Produção de vídeos em massa (ferramenta Produce_Mass_Videos)\n\nResponda em Português do Brasil de forma amigável e profissional."
+        }
+      },
+      "id": "ai-agent",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "telegram-send",
+      "name": "Telegram: Responder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [750, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "5qMg3Grxg93OKPbn",
+          "name": "Telegram account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "options": {}
+      },
+      "id": "openai-model",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [500, 520],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai_cred_id",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionKey": "={{ $('Telegram Trigger').first().json.message.chat.id }}"
+      },
+      "id": "window-buffer-memory",
+      "name": "Window Buffer Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [660, 520]
+    },
+    {
+      "parameters": {
+        "name": "Auth_Login",
+        "description": "Faz o login e vincula a conta do usuário ao Telegram. Recebe o email e senha da conta Cocreator do usuário, mais o chat_id do Telegram (fornecido no início da mensagem). Após o login, o sistema vincula automaticamente o chat_id do Telegram à conta do usuário para futuras interações. Use SEMPRE que o usuário ainda não fez login.",
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "specifyInputSchema": true,
+        "schemaType": "fromDefinedSchema",
+        "inputSchema": {
+          "values": [
+            { "name": "email", "type": "string", "description": "O email da conta do usuário no Cocreator", "required": true },
+            { "name": "password", "type": "string", "description": "A senha do usuário no Cocreator", "required": true },
+            { "name": "chat_id", "type": "string", "description": "O Chat ID do Telegram do usuário (fornecido no início da mensagem)", "required": true }
+          ]
+        }
+      },
+      "id": "tool-login",
+      "name": "Tool: Login",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [300, 520]
+    },
+    {
+      "parameters": {
+        "name": "Produce_Mass_Videos",
+        "description": "Aciona a esteira de produção para vários vídeos de uma vez. Cria uma entrada no Mural de Ideias do dashboard com o tema e quantidade de vídeos. Use quando o usuário quiser produzir múltiplos vídeos sobre um tema geral.",
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "specifyInputSchema": true,
+        "schemaType": "fromDefinedSchema",
+        "inputSchema": {
+          "values": [
+            { "name": "quantidade", "type": "number", "description": "Quantidade de vídeos a serem produzidos", "required": true },
+            { "name": "tema_geral", "type": "string", "description": "O tema geral para a massa de vídeos", "required": true }
+          ]
+        }
+      },
+      "id": "tool-mass",
+      "name": "Tool: Produção em Massa",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [300, 680]
+    },
+    {
+      "parameters": {
+        "name": "Produce_Single_Video",
+        "description": "Aciona a produção de um vídeo específico. Cria uma entrada no Mural de Ideias do dashboard com o tema e duração desejada. Use quando o usuário quiser produzir um único vídeo sobre um tema específico.",
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "specifyInputSchema": true,
+        "schemaType": "fromDefinedSchema",
+        "inputSchema": {
+          "values": [
+            { "name": "topic", "type": "string", "description": "O tema principal do vídeo", "required": true },
+            { "name": "duration", "type": "number", "description": "A duração desejada em segundos", "required": true }
+          ]
+        }
+      },
+      "id": "tool-single",
+      "name": "Tool: Produção Unitária",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [300, 840]
+    },
+    {
+      "parameters": {
+        "name": "Idealize_System_Message",
+        "description": "Permite registrar uma ideia para criação de system message no Mural de Ideias. Use quando o usuário quiser idealizar ou brainstormar uma mensagem de sistema para o Arquiteto processar posteriormente no dashboard.",
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "specifyInputSchema": true,
+        "schemaType": "fromDefinedSchema",
+        "inputSchema": {
+          "values": [
+            { "name": "ideia", "type": "string", "description": "A ideia completa do usuário para a mensagem de sistema", "required": true }
+          ]
+        }
+      },
+      "id": "tool-idealize",
+      "name": "Tool: Idealizar System Message",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [300, 1000]
+    },
+    {
+      "parameters": {
+        "name": "Idealize_Video_List",
+        "description": "Permite criar e registrar uma lista de ideias para vídeos no Mural de Ideias. Use quando o usuário quiser brainstormar ideias de vídeos para um contexto ou nicho específico.",
+        "workflowId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list"
+        },
+        "specifyInputSchema": true,
+        "schemaType": "fromDefinedSchema",
+        "inputSchema": {
+          "values": [
+            { "name": "contexto", "type": "string", "description": "O contexto, nicho ou tema geral das ideias de vídeos", "required": true }
+          ]
+        }
+      },
+      "id": "tool-video-list",
+      "name": "Tool: Lista de Vídeos",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 1.1,
+      "position": [300, 1160]
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "AI Agent", "type": "main", "index": 0 }]]
+    },
+    "AI Agent": {
+      "main": [[{ "node": "Telegram: Responder", "type": "main", "index": 0 }]]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [[{ "node": "AI Agent", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "Window Buffer Memory": {
+      "ai_memory": [[{ "node": "AI Agent", "type": "ai_memory", "index": 0 }]]
+    },
+    "Tool: Login": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "Tool: Produção em Massa": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "Tool: Produção Unitária": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "Tool: Idealizar System Message": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "Tool: Lista de Vídeos": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": []
+}

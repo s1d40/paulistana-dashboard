@@ -73,7 +73,7 @@ export default function FiltersBar() {
         </div>
 
         {/* Status Filter */}
-        <div className="relative">
+        <div className="relative z-30">
           <button
             onClick={() => setIsStatusOpen(!isStatusOpen)}
             className="flex items-center gap-3 px-6 py-3 bg-black/40 border border-zinc-800 rounded-2xl text-[10px] font-black uppercase tracking-widest text-zinc-500 hover:text-white hover:border-zinc-700 transition-all min-w-[200px] justify-between group"

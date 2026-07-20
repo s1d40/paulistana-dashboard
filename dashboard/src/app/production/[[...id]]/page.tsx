@@ -408,6 +408,21 @@ export default function ProductionStudioPage() {
       alert('Selecione uma conta para agendar.');
       return;
     }
+
+    // Confirmation dialog showing account name
+    const postItem = productionItems.find(p => p.uuid === postId);
+    const postName = postItem?.tituloOtimizado || postItem?.produto || postId.substring(0, 8);
+    const formattedDate = new Date(dateStr).toLocaleDateString('pt-BR');
+    const formattedTime = new Date(dateStr).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    
+    if (!confirm(
+      `📅 Confirmar Agendamento\n\n` +
+      `Vídeo: ${postName}\n` +
+      `Data: ${formattedDate} às ${formattedTime}\n\n` +
+      `📢 Será publicado na conta:\n➜ ${selectedAccount.nome_conta}\n\n` +
+      `Deseja continuar?`
+    )) return;
+
     try {
       // 1. Dispara Webhook primeiro (Se falhar, não salva no banco)
       const res = await fetch('/api/content/publish', {
@@ -443,7 +458,7 @@ export default function ProductionStudioPage() {
         return item;
       }));
 
-      alert('Publicação agendada com sucesso e enviada ao n8n!');
+      alert(`✅ Publicação agendada com sucesso na conta "${selectedAccount.nome_conta}"!`);
     } catch (err) {
       console.error('Erro ao agendar:', err);
       alert('Falha ao agendar post no webhook n8n.');
@@ -461,7 +476,13 @@ export default function ProductionStudioPage() {
       return;
     }
 
-    if (confirm(`Deseja agendar sequencialmente ${readyItems.length} posts a cada ${bulkInterval} horas a partir de ${new Date(bulkStartDate).toLocaleDateString('pt-BR')} às ${new Date(bulkStartDate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}?`)) {
+    if (confirm(
+      `📅 Agendamento em Massa Sequencial\n\n` +
+      `📢 CONTA: ${selectedAccount.nome_conta}\n\n` +
+      `${readyItems.length} vídeos a cada ${bulkInterval}h\n` +
+      `Início: ${new Date(bulkStartDate).toLocaleDateString('pt-BR')} às ${new Date(bulkStartDate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n\n` +
+      `Confirmar agendamento nesta conta?`
+    )) {
       const currentStart = new Date(bulkStartDate);
       let successCount = 0;
       
@@ -546,7 +567,7 @@ export default function ProductionStudioPage() {
             { data: allAudios },
             { data: allVideos }
           ] = await Promise.all([
-            supabase.from('posts').select('id_post, status, roteiro_gerado, titulo_post, captions, hashtags, status_agendamento, data_agendamento').in('id_post', uuids),
+            supabase.from('posts').select('id_post, status, roteiro_gerado, titulo_post, captions, hashtags, status_agendamento, data_agendamento, feedback').in('id_post', uuids),
             supabase.from('imagens').select('id_post, image_url, url_imagem_fundo').in('id_post', uuids),
             supabase.from('audios').select('id_post, audio_url').in('id_post', uuids),
             supabase.from('videos').select('id_post, video_final_url').in('id_post', uuids)
@@ -596,6 +617,18 @@ export default function ProductionStudioPage() {
               newStatus = 'Processando';
             } else if (livePost) {
               newStatus = 'Aguardando';
+              // AUTO-HEAL: If post is stuck in "Aguardando Revisão" but has a valid script and auto_produce,
+              // promote it to "Produzir" so the worker picks it up. This is a frontend safety net.
+              if (dbStatus === 'Aguardando Revisão') {
+                const hasScriptNow = livePost.roteiro_gerado && typeof livePost.roteiro_gerado === 'string' && !livePost.roteiro_gerado.includes('Gerando...') && livePost.roteiro_gerado.length > 100;
+                let feedbackParsed: any = {};
+                try { feedbackParsed = typeof livePost.feedback === 'string' ? JSON.parse(livePost.feedback || '{}') : (livePost.feedback || {}); } catch {}
+                if (hasScriptNow && feedbackParsed.auto_produce) {
+                  console.log(`[Auto-Heal] Promoting post ${item.uuid} from 'Aguardando Revisão' → 'Produzir'`);
+                  supabase.from('posts').update({ status: 'Produzir' }).eq('id_post', item.uuid).then(() => {});
+                  newStatus = 'Processando';
+                }
+              }
             }
 
             const hasValidScript = livePost?.roteiro_gerado && 
@@ -1893,6 +1926,7 @@ export default function ProductionStudioPage() {
                           setCardTab={setCardTab}
                           progress={progress}
                           publishingStatus={publishingStatus}
+                          accountName={selectedAccount?.nome_conta}
                           onDiscard={handleDiscardItem}
                           onGenerateAll={handleGenerateAll}
                           onGenerateScript={handleGenerateScript}

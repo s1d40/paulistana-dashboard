@@ -226,6 +226,40 @@ export async function GET(request: Request) {
       }
     }
 
+    // Re-vincular posts órfãos com o conta_id_instagram correspondente
+    if (idCliente && igAccountId) {
+      try {
+        // Buscar a conta recém-criada/atualizada
+        const { data: conta } = await supabaseAdmin
+          .from('contas')
+          .select('id_conta')
+          .eq('conta_id_instagram', igAccountId)
+          .single();
+
+        if (conta) {
+          // Buscar posts órfãos deste cliente que tinham esta conta
+          const { data: orphanPosts } = await supabaseAdmin
+            .from('posts')
+            .select('id_post')
+            .is('id_conta', null)
+            .eq('id_cliente', idCliente);
+
+          if (orphanPosts && orphanPosts.length > 0) {
+            const { count } = await supabaseAdmin
+              .from('posts')
+              .update({ id_conta: conta.id_conta })
+              .is('id_conta', null)
+              .eq('id_cliente', idCliente)
+              .eq('conta_id_instagram', igAccountId);
+
+            console.log(`🔗 Re-vinculados posts órfãos com conta_id_instagram=${igAccountId} → id_conta=${conta.id_conta}`);
+          }
+        }
+      } catch (relinkErr: any) {
+        console.warn('⚠️ Erro ao re-vincular posts órfãos:', relinkErr.message);
+      }
+    }
+
     // 5. IMPORTANTE: Assinar webhooks para esta conta Instagram
     // Sem esta chamada, a Meta NÃO envia eventos (DMs, comentários) para contas
     // conectadas via Instagram Business Login

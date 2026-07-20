@@ -8,7 +8,7 @@ const ANDRE_SELLER_ID = 428354884;
 export async function POST(req: Request) {
   try {
     console.log("==========================================");
-    console.log("🕵️ Iniciando Descoberta Automática de Concorrentes (Top 25)");
+    console.log("🕵️ Iniciando Descoberta Automática de Concorrentes (via Catálogo)");
     console.log("==========================================");
 
     // 1. Pega o token do ML
@@ -24,32 +24,57 @@ export async function POST(req: Request) {
       throw new Error("Erro ao pegar token ML: " + (e.message || e));
     }
 
-    // 2. Busca todos os anúncios ativos do André (paginação simplificada limit 100)
+    const headers = { 'Authorization': `Bearer ${mlToken}` };
+
+    // 2. Busca todos os anúncios ativos do André (paginação até 200)
     console.log("🔍 Buscando lista de produtos do André no ML...");
-    const searchRes = await fetch(`https://api.mercadolibre.com/users/${ANDRE_SELLER_ID}/items/search?status=active&limit=100`, {
-      headers: { 'Authorization': `Bearer ${mlToken}` }
-    });
-    if (!searchRes.ok) throw new Error("Falha ao buscar itens do vendedor.");
-    const searchData = await searchRes.json();
-    const myItemIds = searchData.results || [];
+    let myItemIds: string[] = [];
+    let offset = 0;
+    
+    while (offset < 200) {
+      const searchRes = await fetch(
+        `https://api.mercadolibre.com/users/${ANDRE_SELLER_ID}/items/search?status=active&limit=100&offset=${offset}`,
+        { headers }
+      );
+      if (!searchRes.ok) throw new Error("Falha ao buscar itens do vendedor.");
+      const searchData = await searchRes.json();
+      const ids = searchData.results || [];
+      myItemIds.push(...ids);
+      if (ids.length < 100) break;
+      offset += 100;
+    }
+    
     console.log(`Encontrados ${myItemIds.length} produtos do André.`);
 
-    // 3. Busca os detalhes para pegar os títulos (em lotes de 20)
-    let myProducts: string[] = [];
+    // 3. Busca detalhes em lotes de 20 para pegar catalog_product_id e título
+    interface MyProduct {
+      id: string;
+      title: string;
+      catalogId: string | null;
+      price: number;
+    }
+    
+    let myProducts: MyProduct[] = [];
     for (let i = 0; i < myItemIds.length; i += 20) {
       const chunk = myItemIds.slice(i, i + 20).join(',');
-      const itemsRes = await fetch(`https://api.mercadolibre.com/items?ids=${chunk}`, {
-        headers: { 'Authorization': `Bearer ${mlToken}` }
-      });
+      const itemsRes = await fetch(`https://api.mercadolibre.com/items?ids=${chunk}`, { headers });
       if (itemsRes.ok) {
         const itemsData = await itemsRes.json();
         itemsData.forEach((itemObj: any) => {
-          if (itemObj.body && itemObj.body.title) {
-            myProducts.push(itemObj.body.title);
+          const body = itemObj.body;
+          if (body?.title) {
+            myProducts.push({
+              id: body.id,
+              title: body.title,
+              catalogId: body.catalog_product_id || null,
+              price: body.price || 0
+            });
           }
         });
       }
     }
+
+    console.log(`${myProducts.filter(p => p.catalogId).length} de ${myProducts.length} produtos têm catálogo ML.`);
 
     // Pega todos os tracked_products atuais para evitar duplicar
     const { data: trackedData } = await supabase.from('tracked_products').select('*');
@@ -57,98 +82,133 @@ export async function POST(req: Request) {
 
     let resultsSummary = [];
 
-    for (const productName of myProducts) {
-      console.log(`\n🔍 Buscando top 25 para: ${productName}`);
+    for (const product of myProducts) {
+      if (!product.catalogId) {
+        console.log(`⏭️ Pulando ${product.title.slice(0, 40)} (sem catálogo)`);
+        continue;
+      }
+
+      console.log(`\n🔍 Buscando concorrentes do catálogo ${product.catalogId} para: ${product.title.slice(0, 50)}`);
 
       // Cria o tracked_product se não existir
-      let trackedProduct = trackedProducts.find(t => t.name.toLowerCase() === productName.toLowerCase());
+      let trackedProduct = trackedProducts.find(t => t.name.toLowerCase() === product.title.toLowerCase());
       if (!trackedProduct) {
-        const { data: newTracked, error } = await supabase.from('tracked_products').insert({ name: productName }).select('*').single();
+        const { data: newTracked, error } = await supabase.from('tracked_products').insert({ name: product.title }).select('*').single();
         if (error || !newTracked) {
-          console.error("Erro ao criar tracked_product para", productName);
+          console.error("Erro ao criar tracked_product para", product.title);
           continue;
         }
         trackedProduct = newTracked;
         trackedProducts.push(newTracked);
       }
 
-      // Busca no Mercado Livre com paginação até achar 25 concorrentes
+      // Busca concorrentes via catálogo — /products/{catalogId}/items
       try {
-        const query = encodeURIComponent(productName);
         let concorrentes: any[] = [];
-        let currentOffset = 0;
-        let hasMore = true;
+        let catalogOffset = 0;
         
-        while (concorrentes.length < 25 && hasMore && currentOffset < 150) { // max 3 pages (150)
-          const res = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${query}&limit=50&offset=${currentOffset}`, {
-            headers: { 'Authorization': `Bearer ${mlToken}` }
-          });
+        while (concorrentes.length < 25 && catalogOffset < 100) {
+          const res = await fetch(
+            `https://api.mercadolibre.com/products/${product.catalogId}/items?limit=50&offset=${catalogOffset}`,
+            { headers }
+          );
 
           if (!res.ok) {
-            console.error(`Falha ao buscar ${productName} no ML:`, res.statusText);
+            console.error(`Falha ao buscar catálogo ${product.catalogId}:`, res.status);
             break;
           }
 
-          const mlData = await res.json();
-          const items = mlData.results || [];
+          const catData = await res.json();
+          const items = catData.results || [];
           
-          if (items.length === 0) {
-            hasMore = false;
-            break;
-          }
-          
-          const validItems = items.filter((item: any) => item.seller?.id !== ANDRE_SELLER_ID);
+          if (items.length === 0) break;
+
+          // Filtra vendedores que NÃO são o André
+          const validItems = items.filter((item: any) => item.seller_id !== ANDRE_SELLER_ID);
           for (const vItem of validItems) {
             if (concorrentes.length < 25) {
               concorrentes.push(vItem);
             }
           }
           
-          currentOffset += 50;
+          catalogOffset += 50;
+          
+          // Se pegou menos que 50, não tem mais
+          if (items.length < 50) break;
         }
 
-        if (concorrentes.length === 0) continue;
+        if (concorrentes.length === 0) {
+          console.log(`  Nenhum concorrente encontrado no catálogo ${product.catalogId}`);
+          continue;
+        }
 
-        // Busca os anúncios já salvos para este produto para não duplicar na tabela competitor_ads
+        console.log(`  Encontrados ${concorrentes.length} concorrentes!`);
+
+        // Busca detalhes completos dos concorrentes via multi-get
+        const concorrenteIds = concorrentes.map((c: any) => c.item_id).filter(Boolean);
+        let detailedItems: Map<string, any> = new Map();
+        
+        for (let i = 0; i < concorrenteIds.length; i += 20) {
+          const chunk = concorrenteIds.slice(i, i + 20).join(',');
+          const detailRes = await fetch(`https://api.mercadolibre.com/items?ids=${chunk}`, { headers });
+          if (detailRes.ok) {
+            const detailData = await detailRes.json();
+            detailData.forEach((d: any) => {
+              if (d.body) detailedItems.set(d.body.id, d.body);
+            });
+          }
+        }
+
+        // Busca os anúncios já salvos para este produto para não duplicar
         const { data: existingAds } = await supabase.from('competitor_ads').select('id, ml_id').eq('product_id', trackedProduct.id);
         const existingMap = new Map((existingAds || []).map(ad => [ad.ml_id, ad.id]));
 
         let addedCount = 0;
 
         for (const item of concorrentes) {
-          let adId = existingMap.get(item.id);
+          const itemId = item.item_id;
+          const detail = detailedItems.get(itemId);
+          
+          let adId = existingMap.get(itemId);
 
           if (!adId) {
-            // Insere novo anúncio concorrente
             const { data: newAd, error: errAd } = await supabase.from('competitor_ads').insert({
               product_id: trackedProduct.id,
-              title: item.title,
-              url: item.permalink,
-              ml_id: item.id,
-              seller_name: item.seller?.nickname || `Seller_${item.seller?.id}`
+              title: detail?.title || item.title || product.title,
+              url: detail?.permalink || `https://produto.mercadolivre.com.br/${itemId?.replace('MLB', 'MLB-')}`,
+              ml_id: itemId,
+              seller_name: detail?.seller?.nickname || `Seller_${item.seller_id}`
             }).select('id').single();
 
             if (errAd || !newAd) {
-              console.error("Erro ao salvar concorrente", item.id);
+              console.error("Erro ao salvar concorrente", itemId);
               continue;
             }
             adId = newAd.id;
-            existingMap.set(item.id, adId);
+            existingMap.set(itemId, adId);
             addedCount++;
           }
 
           // Insere histórico de preço de hoje
-          await supabase.from('price_history').insert({
-            ad_id: adId,
-            price: item.price,
-            captured_at: new Date().toISOString()
-          });
+          const price = detail?.price || item.price;
+          if (price) {
+            await supabase.from('price_history').insert({
+              ad_id: adId,
+              price,
+              captured_at: new Date().toISOString()
+            });
+          }
         }
 
-        resultsSummary.push({ product: productName, adsFound: concorrentes.length, newAdsAdded: addedCount });
+        resultsSummary.push({ 
+          product: product.title, 
+          catalogId: product.catalogId,
+          adsFound: concorrentes.length, 
+          newAdsAdded: addedCount 
+        });
 
       } catch (e) {
-        console.error("Exceção ao buscar", productName, e);
+        console.error("Exceção ao buscar catálogo", product.catalogId, e);
       }
     }
 

@@ -87,6 +87,57 @@ export async function POST(request: Request) {
 
     await Promise.all(insertPromises);
 
+    // Re-vincular posts órfãos (posts com id_conta=null do mesmo cliente)
+    // Isso acontece quando o usuário deleta a conta e depois re-adiciona
+    try {
+      // Buscar as contas recém-importadas deste cliente
+      const { data: clientContas } = await supabaseAdmin
+        .from('contas')
+        .select('id_conta, conta_id_instagram, conta_id_facebook')
+        .eq('id_cliente', idCliente);
+
+      if (clientContas && clientContas.length > 0) {
+        // Buscar posts órfãos (id_conta = null) deste cliente
+        const { data: orphanPosts, error: orphanError } = await supabaseAdmin
+          .from('posts')
+          .select('id_post, id_conta, conta_id_instagram')
+          .is('id_conta', null)
+          .eq('id_cliente', idCliente);
+
+        if (orphanPosts && orphanPosts.length > 0) {
+          let relinked = 0;
+          for (const post of orphanPosts) {
+            // Tentar vincular pelo conta_id_instagram do post
+            if (post.conta_id_instagram) {
+              const matchingConta = clientContas.find(
+                c => c.conta_id_instagram === post.conta_id_instagram
+              );
+              if (matchingConta) {
+                await supabaseAdmin
+                  .from('posts')
+                  .update({ id_conta: matchingConta.id_conta })
+                  .eq('id_post', post.id_post);
+                relinked++;
+              }
+            }
+            // Se não tem conta_id_instagram no post, vincular à primeira conta disponível
+            if (!post.conta_id_instagram && clientContas.length === 1) {
+              await supabaseAdmin
+                .from('posts')
+                .update({ id_conta: clientContas[0].id_conta })
+                .eq('id_post', post.id_post);
+              relinked++;
+            }
+          }
+          if (relinked > 0) {
+            console.log(`🔗 Re-vinculados ${relinked}/${orphanPosts.length} posts órfãos ao cliente ${idCliente}`);
+          }
+        }
+      }
+    } catch (relinkErr: any) {
+      console.warn('⚠️ Erro ao re-vincular posts órfãos (não crítico):', relinkErr.message);
+    }
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error('Import Error:', err.message);

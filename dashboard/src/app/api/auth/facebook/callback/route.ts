@@ -11,7 +11,7 @@ export async function GET(request: Request) {
 
   if (error) {
     console.error('Facebook OAuth Error:', error);
-    return NextResponse.redirect(`${appUrl}/?auth_error=${error}`);
+    return NextResponse.redirect(`${appUrl}/configuracoes/contas?auth_error=${error}`);
   }
 
   if (!code || !contaId) {
@@ -79,10 +79,10 @@ export async function GET(request: Request) {
     }
 
     // Sucesso! Redirecionar o usuário de volta para o painel
-    return NextResponse.redirect(`${appUrl}/?auth_success=1`);
+    return NextResponse.redirect(`${appUrl}/configuracoes/contas?auth_success=facebook`);
 
   } catch (err: any) {
     console.error('OAuth Flow Error:', err.message);
-    return NextResponse.redirect(`${appUrl}/?auth_error=server_error`);
+    return NextResponse.redirect(`${appUrl}/configuracoes/contas?auth_error=server_error`);
   }
 }

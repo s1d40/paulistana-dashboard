@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+/* ==========================================
+   Paulistana Storefront - Design System
+   ========================================== */
+
+/* Base resets using CSS variables from layout.tsx */
+body {
+  font-family: var(--font-inter), 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--store-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--store-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--store-muted);
+}
+
+/* Selection */
+::selection {
+  background-color: var(--store-accent);
+  color: white;
+}
+
+/* ==========================================
+   Animations
+   ========================================== */
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px var(--store-accent), 0 0 40px transparent;
+  }
+  50% {
+    box-shadow: 0 0 30px var(--store-accent), 0 0 60px var(--store-accent);
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
+
+.animate-fade-up {
+  animation: fade-up 0.5s ease-out;
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--store-card) 25%,
+    var(--store-border) 50%,
+    var(--store-card) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* ==========================================
+   Hero gradient effect
+   ========================================== */
+
+.hero-gradient {
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    color-mix(in srgb, var(--store-accent) 15%, transparent) 0%,
+    transparent 70%
+  );
+}
+
+/* ==========================================
+   Glass effect
+   ========================================== */
+
+.glass {
+  background: color-mix(in srgb, var(--store-card) 80%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
