@@ -24,7 +24,7 @@ export default function PrivacyPolicy() {
 
         <div className="prose prose-invert prose-zinc max-w-none prose-headings:text-white prose-headings:font-bold prose-h3:text-xl prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline prose-li:text-zinc-400">
           <p className="text-lg text-zinc-400 leading-relaxed mb-8">
-            A sua privacidade é importante para nós. Esta Política de Privacidade descreve como o <strong>SFAI Content Studio / Paulistana BI</strong> coleta, usa, processa e protege os seus dados pessoais e dados de integrações de terceiros, em conformidade com a Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).
+            A sua privacidade é importante para nós. Esta Política de Privacidade descreve como o <strong>Cocreator Content Studio / Cocreator Studio</strong> coleta, usa, processa e protege os seus dados pessoais e dados de integrações de terceiros, em conformidade com a Lei Geral de Proteção de Dados (LGPD - Lei nº 13.709/2018).
           </p>
 
           <section className="mt-12 space-y-8">

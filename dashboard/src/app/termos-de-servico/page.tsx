@@ -24,7 +24,7 @@ export default function TermsOfService() {
 
         <div className="prose prose-invert prose-zinc max-w-none prose-headings:text-white prose-headings:font-bold prose-h3:text-xl prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline prose-li:text-zinc-400">
           <p className="text-lg text-zinc-400 leading-relaxed mb-8">
-            Bem-vindo ao <strong>SFAI Content Studio / Paulistana BI</strong> ("Plataforma", "nós", "nosso"). Ao acessar ou utilizar nossa plataforma, você concorda em se vincular a estes Termos de Uso. Se você não concordar com qualquer parte destes termos, não deverá utilizar nossos serviços.
+            Bem-vindo ao <strong>Cocreator Content Studio / Cocreator Studio</strong> ("Plataforma", "nós", "nosso"). Ao acessar ou utilizar nossa plataforma, você concorda em se vincular a estes Termos de Uso. Se você não concordar com qualquer parte destes termos, não deverá utilizar nossos serviços.
           </p>
 
           <section className="mt-12 space-y-8">

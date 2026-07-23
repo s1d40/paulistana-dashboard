@@ -98,7 +98,7 @@ export default function Sidebar() {
           "font-bold bg-gradient-to-r from-indigo-500 to-purple-500 bg-clip-text text-transparent transition-all",
           effectiveCollapsed ? "text-xl scale-125" : "text-xl"
         )}>
-          {effectiveCollapsed ? "P" : "Paulistana BI"}
+          {effectiveCollapsed ? "C" : "Cocreator Studio"}
         </h1>
       </div>
       <div className="flex flex-1 flex-col overflow-y-auto px-4 py-6">
@@ -253,7 +253,25 @@ export default function Sidebar() {
       {/* Bottom Profile/Settings */}
       <div className="flex-none pb-4">
 
-        <div className="px-4 space-y-2 mt-4">
+        {/* Commercial Widget */}
+        {!isCollapsed && (
+          <div className="px-4 mb-4">
+            <div className="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-950/30 dark:to-purple-950/30 border border-indigo-100 dark:border-indigo-500/20 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200">Créditos de IA</span>
+                <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400">32 / 50</span>
+              </div>
+              <div className="w-full bg-white dark:bg-zinc-900 h-1.5 rounded-full overflow-hidden mb-3">
+                <div className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full" style={{ width: '64%' }} />
+              </div>
+              <Link href="/produtos" className="block w-full text-center bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2 rounded-lg transition-colors shadow-sm">
+                Fazer Upgrade
+              </Link>
+            </div>
+          </div>
+        )}
+
+        <div className="px-4 space-y-2 mt-2">
         <Link href="/presets" className={clsx(
           "flex items-center gap-x-4 px-2 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 rounded-md transition-colors",
           isCollapsed && "justify-center"
